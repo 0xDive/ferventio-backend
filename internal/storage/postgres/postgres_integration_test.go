@@ -30,7 +30,7 @@ func TestPostgresStorageRegistrationRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open PostgreSQL storage: %v", err)
 	}
-	defer storage.Close()
+	t.Cleanup(func() { storage.Close() })
 
 	installationID := "integration-" + time.Now().UTC().Format("20060102150405.000000000")
 	secret := "integration-device-secret"
@@ -89,7 +89,7 @@ func TestPostgresSettingsFirstWriteSerializes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open PostgreSQL storage: %v", err)
 	}
-	defer storage.Close()
+	t.Cleanup(func() { storage.Close() })
 
 	userID := "settings-concurrency-" + time.Now().UTC().Format("20060102150405.000000000")
 	t.Cleanup(func() {
