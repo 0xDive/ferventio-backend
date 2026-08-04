@@ -34,7 +34,7 @@ jobs:
       TEST_DATABASE_URL: postgres://ferventio:ferventio-test-only@127.0.0.1:5432/ferventio_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
