@@ -78,6 +78,7 @@ func run(logger *slog.Logger) error {
 	workerContext, cancelWorkers := context.WithCancel(rootContext)
 	defer cancelWorkers()
 	go serverApplication.RunBackgroundWorkers(workerContext)
+	go serverApplication.RunUserChatEventSub(workerContext)
 
 	httpServer := &http.Server{
 		Addr:              cfg.ListenAddress,
