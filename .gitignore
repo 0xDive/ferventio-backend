@@ -1,0 +1,24 @@
+# Secrets and local configuration
+.env
+.env.*
+!config/examples/backend.env
+.secrets/
+
+# Go
+/bin/
+/build/
+/dist/
+/backups/
+/coverage.out
+*.test
+*.prof
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local database exports
+*.dump
+*.sql.gz

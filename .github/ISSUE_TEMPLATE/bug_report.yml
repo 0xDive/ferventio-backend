@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible backend problem
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version and deployment
+      placeholder: 0.0.1, Docker Compose on Linux arm64
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include exact sanitized commands.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and actual result
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs
+      description: Do not attach .env files, database dumps, tokens or user data.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I ran make doctor and make health.
+          required: true
+        - label: I tested the latest beta and searched existing issues.
+          required: true
+        - label: I removed secrets and user data.
+          required: true

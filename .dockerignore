@@ -1,0 +1,13 @@
+.git
+.github
+.env
+.env.*
+!config/examples/backend.env
+.secrets
+*.log
+coverage.out
+bin
+build
+dist
+.tmp
+.DS_Store

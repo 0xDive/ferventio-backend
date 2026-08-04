@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS settings_sync_snapshots;
+DROP TABLE IF EXISTS audit_records;
+DROP TABLE IF EXISTS channel_notification_states;
+DROP TABLE IF EXISTS eventsub_inbox;
+DROP TABLE IF EXISTS eventsub_seen;
+DROP TABLE IF EXISTS deliveries;
+DROP TABLE IF EXISTS auth_handoffs;
+DROP TABLE IF EXISTS auth_pending;
+DROP TABLE IF EXISTS auth_sessions;
+DROP TABLE IF EXISTS auth_credentials;
+DROP TABLE IF EXISTS push_registrations;

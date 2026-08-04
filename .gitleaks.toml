@@ -1,0 +1,4 @@
+title = "Ferventio Backend secret scanning"
+
+[extend]
+useDefault = true
