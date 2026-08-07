@@ -311,5 +311,7 @@ var defaultTwitchAuthScopes = []string{
 	"channel:read:vips",
 	"channel:read:subscriptions",
 	"channel:read:redemptions",
+	"channel:manage:polls",
+	"channel:manage:predictions",
 	"user:read:emotes",
 }

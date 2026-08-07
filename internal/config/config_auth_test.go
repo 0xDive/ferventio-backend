@@ -79,6 +79,8 @@ func TestConfiguredScopesCannotDropRequiredApplicationScopes(t *testing.T) {
 		"user:read:chat",
 		"user:write:chat",
 		"moderator:manage:chat_messages",
+		"channel:manage:polls",
+		"channel:manage:predictions",
 	} {
 		found := false
 		for _, scope := range cfg.AuthScopes {
