@@ -1,0 +1,37 @@
+name: One-shot interactive chat OAuth scopes
+
+on:
+  push:
+    branches:
+      - feat/interactive-chat-oauth-scopes
+    paths:
+      - scripts/ci/apply-interactive-chat-oauth-scopes.py
+      - .github/workflows/one-shot-interactive-chat-oauth.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/interactive-chat-oauth-scopes
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Apply guarded patch
+        run: python scripts/ci/apply-interactive-chat-oauth-scopes.py
+      - name: Remove one-shot files
+        run: rm scripts/ci/apply-interactive-chat-oauth-scopes.py .github/workflows/one-shot-interactive-chat-oauth.yml
+      - name: Commit final OAuth scope update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git diff --cached --quiet && exit 1
+          git commit -m "feat(auth): request interactive channel scopes"
+          git push origin HEAD:feat/interactive-chat-oauth-scopes
