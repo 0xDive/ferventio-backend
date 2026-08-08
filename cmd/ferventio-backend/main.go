@@ -17,7 +17,8 @@ import (
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	jsonHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
+	logger := slog.New(newHealthProbeFilterHandler(jsonHandler))
 	if err := run(logger); err != nil {
 		logger.Error("backend stopped", "error", err)
 		os.Exit(1)
