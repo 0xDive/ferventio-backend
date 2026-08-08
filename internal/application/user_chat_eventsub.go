@@ -91,7 +91,7 @@ func newUserChatEventSubManager(server *Server) *userChatEventSubManager {
 }
 
 // RunUserChatEventSub maintains one personal Twitch EventSub WebSocket per
-// token owner that is currently needed to cover ordinary viewer chats.
+// token owner that is currently needed to cover user-authorized chat channels.
 func (s *Server) RunUserChatEventSub(ctx context.Context) {
 	manager := newUserChatEventSubManager(s)
 	if !manager.enabled() {
@@ -136,8 +136,7 @@ func (m *userChatEventSubManager) reconcile(ctx context.Context, registrations [
 		return 0, m.stopAll()
 	}
 
-	webhookEnabled := m.server.eventSub != nil && m.server.eventSub.enabled()
-	desired := assignUserChatChannels(registrations, webhookEnabled)
+	desired := assignUserChatChannels(registrations, false)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -183,8 +182,7 @@ func (m *userChatEventSubManager) stopAll() int {
 	return stopped
 }
 
-func assignUserChatChannels(registrations []Registration, webhookEnabled bool) map[string][]string {
-	coveredByWebhook := map[string]struct{}{}
+func assignUserChatChannels(registrations []Registration, _ bool) map[string][]string {
 	watchers := map[string]map[string]struct{}{}
 
 	for _, registration := range registrations {
@@ -197,9 +195,6 @@ func assignUserChatChannels(registrations []Registration, webhookEnabled bool) m
 			if channelID == "" {
 				continue
 			}
-			if webhookEnabled && (channelID == userID || containsString(registration.ModeratorChannelIDs, channelID)) {
-				coveredByWebhook[channelID] = struct{}{}
-			}
 			if watchers[channelID] == nil {
 				watchers[channelID] = map[string]struct{}{}
 			}
@@ -209,9 +204,7 @@ func assignUserChatChannels(registrations []Registration, webhookEnabled bool) m
 
 	channels := make([]string, 0, len(watchers))
 	for channelID := range watchers {
-		if _, covered := coveredByWebhook[channelID]; !covered {
-			channels = append(channels, channelID)
-		}
+		channels = append(channels, channelID)
 	}
 	sort.Slice(channels, func(i, j int) bool {
 		left := len(watchers[channels[i]])

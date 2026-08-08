@@ -161,10 +161,12 @@ func TestDesiredEventSubSubscriptions(t *testing.T) {
 	subscriptions := desiredEventSubSubscriptions(cfg, registrations)
 	keys := make(map[string]bool, len(subscriptions))
 	for _, subscription := range subscriptions {
+		if subscription.Type == "channel.chat.message" {
+			t.Fatalf("chat must use user-token WebSocket transport, got webhook %#v", subscription)
+		}
 		keys[eventSubSpecKey(subscription.Type, subscription.Version, subscription.Condition)] = true
 	}
 	expected := []string{
-		eventSubSpecKey("channel.chat.message", "1", map[string]string{"broadcaster_user_id": "channel-1", "user_id": "viewer-1"}),
 		eventSubSpecKey("automod.message.hold", "2", map[string]string{"broadcaster_user_id": "channel-1", "moderator_user_id": "viewer-1"}),
 		eventSubSpecKey("channel.moderate", "2", map[string]string{"broadcaster_user_id": "channel-1", "moderator_user_id": "viewer-1"}),
 		eventSubSpecKey("stream.online", "1", map[string]string{"broadcaster_user_id": "channel-1"}),
@@ -174,14 +176,6 @@ func TestDesiredEventSubSubscriptions(t *testing.T) {
 		if !keys[key] {
 			t.Fatalf("missing desired subscription %s", key)
 		}
-	}
-	unsupportedViewerChat := eventSubSpecKey(
-		"channel.chat.message",
-		"1",
-		map[string]string{"broadcaster_user_id": "channel-3", "user_id": "viewer-3"},
-	)
-	if keys[unsupportedViewerChat] {
-		t.Fatalf("ordinary viewer chat subscription should not be created: %s", unsupportedViewerChat)
 	}
 }
 

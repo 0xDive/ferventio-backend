@@ -142,15 +142,8 @@ func desiredEventSubSubscriptions(cfg Config, registrations []Registration) []ev
 			}
 			isModerator := containsString(registration.ModeratorChannelIDs, broadcasterID)
 			isBroadcaster := registration.UserID != "" && registration.UserID == broadcasterID
-			// App-token chat webhooks require user:bot and either moderator status
-			// or a broadcaster-granted channel:bot authorization. Ferventio can
-			// prove the former today; broadcaster bot grants can be added later.
-			if registration.UserID != "" && (isModerator || isBroadcaster) && anyRule(registration, "mention", "reply", "highlight", "selected_user") {
-				appendSpec("channel.chat.message", "1", map[string]string{
-					"broadcaster_user_id": broadcasterID,
-					"user_id":             registration.UserID,
-				})
-			}
+			// channel.chat.message intentionally stays on the per-user WebSocket transport.
+			// Creating it with an app access token would require bot identity scopes.
 			if registration.UserID != "" && isModerator && ruleEnabled(registration, "automod_hold") {
 				appendSpec("automod.message.hold", "2", map[string]string{
 					"broadcaster_user_id": broadcasterID,

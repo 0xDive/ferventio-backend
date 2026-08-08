@@ -1,6 +1,7 @@
 package config
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -67,30 +68,36 @@ func setValidAuthEnvironment(t *testing.T) {
 	t.Setenv("AUTH_HANDOFF_TTL", "2m")
 }
 
-func TestConfiguredScopesCannotDropRequiredApplicationScopes(t *testing.T) {
+func TestConfiguredScopesAreAuthoritativeAndBotIdentityIsRemoved(t *testing.T) {
 	setValidAuthEnvironment(t)
-	t.Setenv("TWITCH_AUTH_SCOPES", "user:read:chat")
+	t.Setenv("TWITCH_AUTH_SCOPES", "user:read:chat user:write:chat user:bot channel:bot user:read:chat")
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
+	want := []string{"user:read:chat", "user:write:chat"}
+	if !reflect.DeepEqual(cfg.AuthScopes, want) {
+		t.Fatalf("AuthScopes = %#v, want %#v", cfg.AuthScopes, want)
+	}
+}
+
+func TestDefaultScopesContainRequiredUserCapabilitiesWithoutBotIdentity(t *testing.T) {
+	scopes := mergeAuthScopes(nil)
 	for _, required := range []string{
-		"user:bot",
 		"user:read:chat",
 		"user:write:chat",
 		"moderator:manage:chat_messages",
 		"channel:manage:polls",
 		"channel:manage:predictions",
+		"user:read:emotes",
 	} {
-		found := false
-		for _, scope := range cfg.AuthScopes {
-			if scope == required {
-				found = true
-				break
-			}
+		if !testContainsScope(scopes, required) {
+			t.Fatalf("default scopes are missing %q: %#v", required, scopes)
 		}
-		if !found {
-			t.Fatalf("required scope %q was removed by TWITCH_AUTH_SCOPES", required)
+	}
+	for _, forbidden := range []string{"user:bot", "channel:bot"} {
+		if testContainsScope(scopes, forbidden) {
+			t.Fatalf("bot identity scope %q must not be requested", forbidden)
 		}
 	}
 }
@@ -133,4 +140,13 @@ func TestLoadConfigRejectsInvalidRateLimitConfiguration(t *testing.T) {
 	if _, err := LoadConfig(); err == nil || !strings.Contains(err.Error(), "RATE_LIMIT_TRUSTED_PROXY_CIDRS") {
 		t.Fatalf("expected invalid proxy CIDR rejection, got %v", err)
 	}
+}
+
+func testContainsScope(scopes []string, expected string) bool {
+	for _, scope := range scopes {
+		if scope == expected {
+			return true
+		}
+	}
+	return false
 }

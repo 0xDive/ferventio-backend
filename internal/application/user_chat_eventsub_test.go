@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-func TestAssignUserChatChannelsSharesOneSubscriptionPerChannel(t *testing.T) {
+func TestAssignUserChatChannelsKeepsModeratedChannelsOnUserTransport(t *testing.T) {
 	registrations := []Registration{
 		{
 			UserID:              "user-a",
@@ -29,7 +29,7 @@ func TestAssignUserChatChannelsSharesOneSubscriptionPerChannel(t *testing.T) {
 
 	assigned := assignUserChatChannels(registrations, true)
 	want := map[string][]string{
-		"user-a": {"channel-1"},
+		"user-a": {"channel-1", "channel-2"},
 		"user-b": {"channel-3"},
 	}
 	if !reflect.DeepEqual(assigned, want) {
