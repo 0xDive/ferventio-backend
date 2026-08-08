@@ -264,30 +264,27 @@ func splitFields(value string) []string {
 }
 
 func mergeAuthScopes(configured []string) []string {
-	seen := make(map[string]struct{}, len(defaultTwitchAuthScopes)+len(configured))
-	result := make([]string, 0, len(defaultTwitchAuthScopes)+len(configured))
-	appendScope := func(scope string) {
-		scope = strings.TrimSpace(scope)
-		if scope == "" {
-			return
+	source := configured
+	if len(source) == 0 {
+		source = defaultTwitchAuthScopes
+	}
+	seen := make(map[string]struct{}, len(source))
+	result := make([]string, 0, len(source))
+	for _, rawScope := range source {
+		scope := strings.TrimSpace(rawScope)
+		if scope == "" || scope == "user:bot" || scope == "channel:bot" {
+			continue
 		}
 		if _, ok := seen[scope]; ok {
-			return
+			continue
 		}
 		seen[scope] = struct{}{}
 		result = append(result, scope)
-	}
-	for _, scope := range defaultTwitchAuthScopes {
-		appendScope(scope)
-	}
-	for _, scope := range configured {
-		appendScope(scope)
 	}
 	return result
 }
 
 var defaultTwitchAuthScopes = []string{
-	"user:bot",
 	"user:read:chat",
 	"user:write:chat",
 	"moderator:manage:chat_messages",
