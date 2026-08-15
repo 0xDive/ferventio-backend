@@ -17,6 +17,7 @@ import (
 
 type Sender struct {
 	firebaseClient  *messaging.Client
+	apns            *apnsSender
 	vapidPublicKey  string
 	vapidPrivateKey string
 	vapidSubscriber string
@@ -39,10 +40,27 @@ func NewSender(ctx context.Context, cfg config.Config) (*Sender, error) {
 		}
 		sender.firebaseClient = client
 	}
+
+	apnsConfig, err := config.LoadAPNsConfig()
+	if err != nil {
+		return nil, fmt.Errorf("load APNs configuration: %w", err)
+	}
+	apns, err := newAPNsSender(apnsConfig)
+	if err != nil {
+		return nil, fmt.Errorf("initialize APNs sender: %w", err)
+	}
+	sender.apns = apns
 	return sender, nil
 }
 
 func (s *Sender) Send(ctx context.Context, registration domain.Registration, notification domain.Notification) error {
+	if registration.Provider == "apns" {
+		if s.apns == nil {
+			return errors.New("APNs is not configured on the server")
+		}
+		return s.apns.Send(ctx, registration.APNsDeviceToken, notification)
+	}
+
 	payload, err := json.Marshal(notification)
 	if err != nil {
 		return fmt.Errorf("encode notification: %w", err)
