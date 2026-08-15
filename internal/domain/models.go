@@ -8,6 +8,7 @@ type Registration struct {
 	DeviceSecretHash     string    `json:"deviceSecretHash,omitempty"`
 	Provider             string    `json:"provider"`
 	FirebaseInstallation string    `json:"firebaseInstallationId,omitempty"`
+	APNsDeviceToken      string    `json:"apnsDeviceToken,omitempty"`
 	Endpoint             string    `json:"endpoint,omitempty"`
 	P256DH               string    `json:"p256dh,omitempty"`
 	Auth                 string    `json:"auth,omitempty"`
