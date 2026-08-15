@@ -13,7 +13,7 @@ import (
 
 const registrationColumns = `
     installation_id, device_secret_hash, provider, firebase_installation_id,
-    endpoint, p256dh, auth, app_version, platform, user_id, user_login,
+    apns_device_token, endpoint, p256dh, auth, app_version, platform, user_id, user_login,
     channel_ids, moderator_channel_ids, notification_rules, highlight_phrases,
     selected_user_logins, updated_at`
 
@@ -46,16 +46,17 @@ func (s *PostgresStorage) Upsert(registration Registration) error {
 	_, err = tx.Exec(ctx, `
         INSERT INTO push_registrations (
             installation_id, device_secret_hash, provider, firebase_installation_id,
-            endpoint, p256dh, auth, app_version, platform, user_id, user_login,
+            apns_device_token, endpoint, p256dh, auth, app_version, platform, user_id, user_login,
             channel_ids, moderator_channel_ids, notification_rules, highlight_phrases,
             selected_user_logins, updated_at
         ) VALUES (
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
         )
         ON CONFLICT (installation_id) DO UPDATE SET
             device_secret_hash = EXCLUDED.device_secret_hash,
             provider = EXCLUDED.provider,
             firebase_installation_id = EXCLUDED.firebase_installation_id,
+            apns_device_token = EXCLUDED.apns_device_token,
             endpoint = EXCLUDED.endpoint,
             p256dh = EXCLUDED.p256dh,
             auth = EXCLUDED.auth,
@@ -73,6 +74,7 @@ func (s *PostgresStorage) Upsert(registration Registration) error {
 		registration.DeviceSecretHash,
 		registration.Provider,
 		registration.FirebaseInstallation,
+		registration.APNsDeviceToken,
 		registration.Endpoint,
 		registration.P256DH,
 		registration.Auth,
@@ -226,6 +228,7 @@ func scanRegistration(scanner registrationScanner) (Registration, error) {
 		&registration.DeviceSecretHash,
 		&registration.Provider,
 		&registration.FirebaseInstallation,
+		&registration.APNsDeviceToken,
 		&registration.Endpoint,
 		&registration.P256DH,
 		&registration.Auth,
