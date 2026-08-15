@@ -13,6 +13,38 @@ import (
 	"time"
 )
 
+func TestValidateSettingsSyncPayloadVersions(t *testing.T) {
+	tests := []struct {
+		name        string
+		version     int
+		wantVersion int
+		wantError   bool
+	}{
+		{name: "legacy v1", version: 1, wantVersion: 1},
+		{name: "portable v2", version: 2, wantVersion: 2},
+		{name: "future v3", version: 3, wantError: true},
+		{name: "zero", version: 0, wantError: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload := validSettingsBackupPayloadVersion(
+				"0.1.0",
+				strings.Repeat("a", 64),
+				"DARK",
+				test.version,
+			)
+			header, err := validateSettingsSyncPayload(payload)
+			if (err != nil) != test.wantError {
+				t.Fatalf("validateSettingsSyncPayload() error = %v, wantError = %v", err, test.wantError)
+			}
+			if err == nil && header.FormatVersion != test.wantVersion {
+				t.Fatalf("FormatVersion = %d, want %d", header.FormatVersion, test.wantVersion)
+			}
+		})
+	}
+}
+
 func TestSettingsSyncHandlersRevisionConflictAndRestore(t *testing.T) {
 	tempDir := t.TempDir()
 	authStore, err := OpenAuthStore(filepath.Join(tempDir, "auth.json"), testAuthKey())
@@ -75,7 +107,7 @@ func TestSettingsSyncHandlersRevisionConflictAndRestore(t *testing.T) {
 		t.Fatalf("initial GET status=%d body=%s", response.Code, response.Body.String())
 	}
 
-	payload1 := validSettingsBackupPayload("0.9.7", strings.Repeat("a", 64), "DARK")
+	payload1 := validSettingsBackupPayloadVersion("0.1.0", strings.Repeat("a", 64), "DARK", 2)
 	put1 := settingsSyncPutBody(t, 0, false, payload1)
 	response := do(http.MethodPut, "/v1/sync/settings", put1)
 	if response.Code != http.StatusOK {
@@ -87,6 +119,9 @@ func TestSettingsSyncHandlersRevisionConflictAndRestore(t *testing.T) {
 	}
 	if snapshot1.Revision != 1 || snapshot1.ContentHash != strings.Repeat("a", 64) {
 		t.Fatalf("unexpected first snapshot: %+v", snapshot1)
+	}
+	if !bytes.Equal(snapshot1.Payload, payload1) {
+		t.Fatalf("portable v2 payload was not preserved: got=%s want=%s", snapshot1.Payload, payload1)
 	}
 
 	payload2 := validSettingsBackupPayload("0.9.7", strings.Repeat("b", 64), "AMOLED")
@@ -144,6 +179,9 @@ func TestSettingsSyncHandlersRevisionConflictAndRestore(t *testing.T) {
 	if restored.Revision != 3 || restored.ContentHash != snapshot1.ContentHash {
 		t.Fatalf("unexpected restored snapshot: %+v", restored)
 	}
+	if !bytes.Equal(restored.Payload, payload1) {
+		t.Fatalf("restored portable v2 payload changed: got=%s want=%s", restored.Payload, payload1)
+	}
 }
 
 func settingsSyncPutBody(t *testing.T, baseRevision int64, force bool, payload json.RawMessage) []byte {
@@ -160,5 +198,9 @@ func settingsSyncPutBody(t *testing.T, baseRevision int64, force bool, payload j
 }
 
 func validSettingsBackupPayload(appVersion, hash, theme string) json.RawMessage {
-	return json.RawMessage(`{"format":"ferventio-settings-backup","formatVersion":1,"createdAt":"2026-07-25T00:00:00Z","appVersion":"` + appVersion + `","contentHash":"` + hash + `","content":{"settings":{"themeMode":"` + theme + `"}}}`)
+	return validSettingsBackupPayloadVersion(appVersion, hash, theme, 1)
+}
+
+func validSettingsBackupPayloadVersion(appVersion, hash, theme string, formatVersion int) json.RawMessage {
+	return json.RawMessage(`{"format":"ferventio-settings-backup","formatVersion":` + strconv.Itoa(formatVersion) + `,"createdAt":"2026-07-25T00:00:00Z","appVersion":"` + appVersion + `","contentHash":"` + hash + `","content":{"settings":{"themeMode":"` + theme + `"}}}`)
 }
