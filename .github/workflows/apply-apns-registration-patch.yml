@@ -1,0 +1,114 @@
+name: Apply APNs Registration Patch
+
+on:
+  push:
+    branches:
+      - feat/apns-push
+    paths:
+      - .github/workflows/apply-apns-registration-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/apns-push
+          fetch-depth: 0
+      - name: Apply patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("internal/application/server.go")
+          text = path.read_text(encoding="utf-8")
+          old = '''func normalizeRegistration(registration *Registration) {
+          \tregistration.Platform = strings.ToLower(strings.TrimSpace(registration.Platform))
+          \tif registration.Platform == "" {
+          \t\t// 0.9.5 Android clients omitted this default value because kotlinx.serialization
+          \t\t// does not encode default-valued properties unless encodeDefaults is enabled.
+          \t\tregistration.Platform = "android"
+          \t}
+          }
+
+          func validateRegistration(registration Registration) error {
+          \tif registration.InstallationID == "" || registration.DeviceSecret == "" {
+          \t\treturn errors.New("installationId and deviceSecret are required")
+          \t}
+          \tif registration.Platform != "android" {
+          \t\treturn errors.New("only android registrations are supported")
+          \t}
+          \tswitch registration.Provider {
+          \tcase "fcm":
+          \t\tif registration.FirebaseInstallation == "" {
+          \t\t\treturn errors.New("firebaseInstallationId is required for FCM")
+          \t\t}
+          \tcase "unifiedpush":
+          \t\tif registration.Endpoint == "" || registration.P256DH == "" || registration.Auth == "" {
+          \t\t\treturn errors.New("endpoint, p256dh and auth are required for UnifiedPush")
+          \t\t}
+          \tcase "embedded_socket":
+          \t\t// The device authenticates the persistent WebSocket with installationId and deviceSecret.
+          \tdefault:
+          \t\treturn errors.New("provider must be fcm, unifiedpush, or embedded_socket")
+          \t}
+          \treturn nil
+          }
+          '''
+          new = '''func normalizeRegistration(registration *Registration) {
+          \tregistration.Platform = strings.ToLower(strings.TrimSpace(registration.Platform))
+          \tregistration.Provider = strings.ToLower(strings.TrimSpace(registration.Provider))
+          \tregistration.APNsDeviceToken = strings.TrimSpace(registration.APNsDeviceToken)
+          \tif registration.Platform == "" {
+          \t\t// 0.9.5 Android clients omitted this default value because kotlinx.serialization
+          \t\t// does not encode default-valued properties unless encodeDefaults is enabled.
+          \t\tregistration.Platform = "android"
+          \t}
+          }
+
+          func validateRegistration(registration Registration) error {
+          \tif registration.InstallationID == "" || registration.DeviceSecret == "" {
+          \t\treturn errors.New("installationId and deviceSecret are required")
+          \t}
+          \tswitch registration.Platform {
+          \tcase "android":
+          \t\tswitch registration.Provider {
+          \t\tcase "fcm":
+          \t\t\tif registration.FirebaseInstallation == "" {
+          \t\t\t\treturn errors.New("firebaseInstallationId is required for FCM")
+          \t\t\t}
+          \t\tcase "unifiedpush":
+          \t\t\tif registration.Endpoint == "" || registration.P256DH == "" || registration.Auth == "" {
+          \t\t\t\treturn errors.New("endpoint, p256dh and auth are required for UnifiedPush")
+          \t\t\t}
+          \t\tcase "embedded_socket":
+          \t\t\t// The device authenticates the persistent WebSocket with installationId and deviceSecret.
+          \t\tdefault:
+          \t\t\treturn errors.New("android provider must be fcm, unifiedpush, or embedded_socket")
+          \t\t}
+          \tcase "ios":
+          \t\tif registration.Provider != "apns" {
+          \t\t\treturn errors.New("ios provider must be apns")
+          \t\t}
+          \t\tif registration.APNsDeviceToken == "" {
+          \t\t\treturn errors.New("apnsDeviceToken is required for APNs")
+          \t\t}
+          \tdefault:
+          \t\treturn errors.New("platform must be android or ios")
+          \t}
+          \treturn nil
+          }
+          '''
+          if old not in text:
+              raise SystemExit("expected registration validation block not found")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/application/server.go
+          git rm .github/workflows/apply-apns-registration-patch.yml
+          git commit -m "feat: accept iOS APNs registrations"
+          git push origin HEAD:feat/apns-push
