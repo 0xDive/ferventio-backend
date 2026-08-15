@@ -490,6 +490,8 @@ func (s *Server) decodeJSON(w http.ResponseWriter, r *http.Request, target any) 
 
 func normalizeRegistration(registration *Registration) {
 	registration.Platform = strings.ToLower(strings.TrimSpace(registration.Platform))
+	registration.Provider = strings.ToLower(strings.TrimSpace(registration.Provider))
+	registration.APNsDeviceToken = strings.TrimSpace(registration.APNsDeviceToken)
 	if registration.Platform == "" {
 		// 0.9.5 Android clients omitted this default value because kotlinx.serialization
 		// does not encode default-valued properties unless encodeDefaults is enabled.
@@ -501,22 +503,31 @@ func validateRegistration(registration Registration) error {
 	if registration.InstallationID == "" || registration.DeviceSecret == "" {
 		return errors.New("installationId and deviceSecret are required")
 	}
-	if registration.Platform != "android" {
-		return errors.New("only android registrations are supported")
-	}
-	switch registration.Provider {
-	case "fcm":
-		if registration.FirebaseInstallation == "" {
-			return errors.New("firebaseInstallationId is required for FCM")
+	switch registration.Platform {
+	case "android":
+		switch registration.Provider {
+		case "fcm":
+			if registration.FirebaseInstallation == "" {
+				return errors.New("firebaseInstallationId is required for FCM")
+			}
+		case "unifiedpush":
+			if registration.Endpoint == "" || registration.P256DH == "" || registration.Auth == "" {
+				return errors.New("endpoint, p256dh and auth are required for UnifiedPush")
+			}
+		case "embedded_socket":
+			// The device authenticates the persistent WebSocket with installationId and deviceSecret.
+		default:
+			return errors.New("android provider must be fcm, unifiedpush, or embedded_socket")
 		}
-	case "unifiedpush":
-		if registration.Endpoint == "" || registration.P256DH == "" || registration.Auth == "" {
-			return errors.New("endpoint, p256dh and auth are required for UnifiedPush")
+	case "ios":
+		if registration.Provider != "apns" {
+			return errors.New("ios provider must be apns")
 		}
-	case "embedded_socket":
-		// The device authenticates the persistent WebSocket with installationId and deviceSecret.
+		if registration.APNsDeviceToken == "" {
+			return errors.New("apnsDeviceToken is required for APNs")
+		}
 	default:
-		return errors.New("provider must be fcm, unifiedpush, or embedded_socket")
+		return errors.New("platform must be android or ios")
 	}
 	return nil
 }
