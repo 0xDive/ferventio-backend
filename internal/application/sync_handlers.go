@@ -185,7 +185,7 @@ func validateSettingsSyncPayload(payload json.RawMessage) (settingsBackupHeader,
 	if err := json.Unmarshal(payload, &header); err != nil {
 		return settingsBackupHeader{}, errors.New("invalid settings backup envelope")
 	}
-	if header.Format != "ferventio-settings-backup" || header.FormatVersion != 1 {
+	if header.Format != settingsBackupFormat || !isSupportedSettingsBackupVersion(header.FormatVersion) {
 		return settingsBackupHeader{}, errors.New("unsupported settings backup format")
 	}
 	if len(header.AppVersion) == 0 || len(header.AppVersion) > 40 {
@@ -202,5 +202,12 @@ func validateSettingsSyncPayload(payload json.RawMessage) (settingsBackupHeader,
 	return header, nil
 }
 
+func isSupportedSettingsBackupVersion(version int) bool {
+	return version >= minimumSettingsBackupVersion && version <= maximumSettingsBackupVersion
+}
+
+const settingsBackupFormat = "ferventio-settings-backup"
+const minimumSettingsBackupVersion = 1
+const maximumSettingsBackupVersion = 2
 const maxSettingsSyncPayloadBytes = 1 << 20
 const maxSettingsSyncRequestBytes = maxSettingsSyncPayloadBytes + 32_768
