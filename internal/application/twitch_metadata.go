@@ -11,12 +11,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 const (
-	defaultTwitchIdentityURL = "https://id.twitch.tv/oauth2/token"
-	defaultTwitchHelixURL    = "https://api.twitch.tv/helix"
-	maxTwitchMetadataBytes   = 4 << 20
+	defaultTwitchIdentityURL    = "https://id.twitch.tv/oauth2/token"
+	defaultTwitchHelixURL       = "https://api.twitch.tv/helix"
+	maxTwitchMetadataBytes      = 4 << 20
+	maxChannelBadgeCacheEntries = 2_048
 )
 
 var errTwitchMetadataDisabled = errors.New("Twitch metadata relay is not configured")
@@ -38,9 +41,10 @@ type twitchMetadataClient struct {
 	accessToken    string
 	tokenExpiresAt time.Time
 
-	cacheMu      sync.Mutex
-	globalBadges twitchMetadataCacheEntry
-	channelBadge map[string]twitchMetadataCacheEntry
+	cacheMu       sync.Mutex
+	globalBadges  twitchMetadataCacheEntry
+	channelBadge  map[string]twitchMetadataCacheEntry
+	badgeRequests singleflight.Group
 }
 
 func newTwitchMetadataClient(cfg Config) *twitchMetadataClient {
@@ -68,17 +72,26 @@ func (c *twitchMetadataClient) globalChatBadges(ctx context.Context) ([]byte, er
 	if body, ok := c.cachedGlobal(); ok {
 		return body, nil
 	}
-	body, err := c.fetchHelix(ctx, "/chat/badges/global", nil)
+	value, err, _ := c.badgeRequests.Do("global", func() (any, error) {
+		if body, ok := c.cachedGlobal(); ok {
+			return body, nil
+		}
+		body, err := c.fetchHelix(ctx, "/chat/badges/global", nil)
+		if err != nil {
+			return nil, err
+		}
+		c.cacheMu.Lock()
+		c.globalBadges = twitchMetadataCacheEntry{
+			body:      cloneBytes(body),
+			expiresAt: c.now().Add(6 * time.Hour),
+		}
+		c.cacheMu.Unlock()
+		return cloneBytes(body), nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	c.cacheMu.Lock()
-	c.globalBadges = twitchMetadataCacheEntry{
-		body:      cloneBytes(body),
-		expiresAt: c.now().Add(6 * time.Hour),
-	}
-	c.cacheMu.Unlock()
-	return cloneBytes(body), nil
+	return cloneBytes(value.([]byte)), nil
 }
 
 func (c *twitchMetadataClient) channelChatBadges(ctx context.Context, broadcasterID string) ([]byte, error) {
@@ -91,18 +104,22 @@ func (c *twitchMetadataClient) channelChatBadges(ctx context.Context, broadcaste
 	if body, ok := c.cachedChannel(broadcasterID); ok {
 		return body, nil
 	}
-	query := url.Values{"broadcaster_id": []string{broadcasterID}}
-	body, err := c.fetchHelix(ctx, "/chat/badges", query)
+	value, err, _ := c.badgeRequests.Do("channel:"+broadcasterID, func() (any, error) {
+		if body, ok := c.cachedChannel(broadcasterID); ok {
+			return body, nil
+		}
+		query := url.Values{"broadcaster_id": []string{broadcasterID}}
+		body, err := c.fetchHelix(ctx, "/chat/badges", query)
+		if err != nil {
+			return nil, err
+		}
+		c.cacheChannel(broadcasterID, body)
+		return cloneBytes(body), nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	c.cacheMu.Lock()
-	c.channelBadge[broadcasterID] = twitchMetadataCacheEntry{
-		body:      cloneBytes(body),
-		expiresAt: c.now().Add(30 * time.Minute),
-	}
-	c.cacheMu.Unlock()
-	return cloneBytes(body), nil
+	return cloneBytes(value.([]byte)), nil
 }
 
 func (c *twitchMetadataClient) cachedGlobal() ([]byte, bool) {
@@ -124,6 +141,34 @@ func (c *twitchMetadataClient) cachedChannel(broadcasterID string) ([]byte, bool
 		return nil, false
 	}
 	return cloneBytes(entry.body), true
+}
+
+func (c *twitchMetadataClient) cacheChannel(broadcasterID string, body []byte) {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	now := c.now()
+	for key, entry := range c.channelBadge {
+		if !now.Before(entry.expiresAt) {
+			delete(c.channelBadge, key)
+		}
+	}
+	if _, exists := c.channelBadge[broadcasterID]; !exists && len(c.channelBadge) >= maxChannelBadgeCacheEntries {
+		var evictKey string
+		var evictAt time.Time
+		for key, entry := range c.channelBadge {
+			if evictKey == "" || entry.expiresAt.Before(evictAt) {
+				evictKey = key
+				evictAt = entry.expiresAt
+			}
+		}
+		if evictKey != "" {
+			delete(c.channelBadge, evictKey)
+		}
+	}
+	c.channelBadge[broadcasterID] = twitchMetadataCacheEntry{
+		body:      cloneBytes(body),
+		expiresAt: now.Add(30 * time.Minute),
+	}
 }
 
 func (c *twitchMetadataClient) fetchHelix(

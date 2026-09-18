@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	. "github.com/0xDive/ferventio-backend/internal/domain"
 	"os"
@@ -135,5 +136,77 @@ func TestPostgresSettingsFirstWriteSerializes(t *testing.T) {
 	}
 	if successes != 1 || conflicts != 1 {
 		t.Fatalf("successes=%d conflicts=%d, want one of each", successes, conflicts)
+	}
+}
+
+func TestPostgresCreateSessionRejectsSecretReplacement(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	storage, err := OpenPostgresStorage(ctx, Config{
+		DatabaseURL:             databaseURL,
+		DatabaseMaxConns:        4,
+		DatabaseMinConns:        1,
+		DatabaseMaxConnLifetime: 10 * time.Minute,
+		DatabaseMaxConnIdleTime: time.Minute,
+		DatabaseConnectTimeout:  10 * time.Second,
+		DatabaseMigrate:         true,
+		AuthEncryptionKey:       base64.RawURLEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef")),
+	})
+	if err != nil {
+		t.Fatalf("open PostgreSQL storage: %v", err)
+	}
+	t.Cleanup(func() { storage.Close() })
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	installationID := "auth-binding-" + suffix
+	now := time.Now().UTC()
+	credential := func(id string) AuthCredential {
+		return AuthCredential{
+			ID:              id + "-" + suffix,
+			ClientID:        "client",
+			UserID:          "user-" + suffix,
+			Login:           "tester",
+			Scopes:          []string{"user:read:chat"},
+			AccessToken:     "access-" + id,
+			RefreshToken:    "refresh-" + id,
+			AccessExpiresAt: now.Add(time.Hour),
+			LastValidatedAt: now,
+			UpdatedAt:       now,
+		}
+	}
+	original := credential("original")
+	attacker := credential("attacker")
+	if err := storage.PutCredential(original); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanupCancel()
+		_, _ = storage.pool.Exec(cleanupCtx, "DELETE FROM auth_sessions WHERE installation_id = $1", installationID)
+		_, _ = storage.pool.Exec(cleanupCtx, "DELETE FROM auth_credentials WHERE id = ANY($1::text[])", []string{original.ID, attacker.ID})
+	})
+
+	originalSecret := "original-device-secret-that-is-long-enough"
+	originalToken, _, err := storage.CreateSession(original.ID, installationID, originalSecret, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.PutCredential(attacker); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := storage.CreateSession(
+		attacker.ID,
+		installationID,
+		"attacker-device-secret-that-is-long-enough",
+		time.Hour,
+	); !errors.Is(err, ErrAuthDeviceMismatch) {
+		t.Fatalf("secret replacement error=%v, want ErrAuthDeviceMismatch", err)
+	}
+	if _, err := storage.ResolveSession(originalToken, installationID, originalSecret, 0); err != nil {
+		t.Fatalf("original session must remain valid after rejected replacement: %v", err)
 	}
 }

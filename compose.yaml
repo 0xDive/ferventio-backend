@@ -49,7 +49,9 @@ services:
       retries: 5
       start_period: 15s
     ports:
-      - "${BACKEND_PORT:-8080}:8080"
+      # Keep the origin off public interfaces by default. Set BACKEND_BIND_ADDRESS
+      # explicitly only when an external reverse proxy cannot reach localhost.
+      - "${BACKEND_BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-8080}:8080"
     networks:
       - backend
 

@@ -15,7 +15,13 @@ import (
 	configpkg "github.com/0xDive/ferventio-backend/internal/config"
 )
 
-const rateLimitAuditInterval = time.Minute
+const (
+	rateLimitAuditInterval        = time.Minute
+	eventSubInvalidPerMinute      = 30
+	eventSubInvalidBurst          = 5
+	eventSubInvalidAuditPerMinute = 60
+	eventSubInvalidAuditBurst     = 10
+)
 
 type rateLimitPolicy struct {
 	name      string
@@ -164,11 +170,52 @@ func (s *Server) rateLimitRequests(next http.Handler) http.Handler {
 }
 
 func rateLimitExemptPath(path string) bool {
-	// Twitch already authenticates EventSub with HMAC, and a busy channel may deliver
-	// legitimate bursts through a small set of Twitch egress addresses. Applying the
-	// generic per-IP bucket here would turn a shared upstream into a denial-of-service
-	// primitive. WebSocket handshakes remain covered by the general IP bucket.
+	// Valid Twitch EventSub traffic is authenticated with HMAC and can arrive in bursts
+	// from shared upstream addresses. Invalid signatures are limited separately after
+	// verification so attackers cannot turn the audit/database path into write amplification.
 	return path == "/v1/eventsub/webhook"
+}
+
+func (s *Server) enforceInvalidEventSubRateLimit(w http.ResponseWriter, r *http.Request) bool {
+	if s.rateLimiter == nil || s.cfg.RateLimitDisabled {
+		return true
+	}
+	clientIP := requestClientIP(r, s.cfg.RateLimitTrustedProxyCIDRs)
+	return s.enforceRateLimit(
+		w,
+		r,
+		rateLimitPolicy{
+			name:      "eventsub_invalid_ip",
+			perMinute: eventSubInvalidPerMinute,
+			burst:     eventSubInvalidBurst,
+		},
+		"ip:"+clientIP,
+		"",
+		"",
+	)
+}
+
+func (s *Server) auditInvalidEventSubVerification(messageID string, verificationErr error) {
+	if s.rateLimiter != nil {
+		decision := s.rateLimiter.take(
+			rateLimitPolicy{
+				name:      "eventsub_invalid_audit",
+				perMinute: eventSubInvalidAuditPerMinute,
+				burst:     eventSubInvalidAuditBurst,
+			},
+			"global",
+		)
+		if !decision.Allowed {
+			return
+		}
+	}
+	s.log.Warn("EventSub verification failed", "error", verificationErr, "message_id", messageID)
+	s.auditRecord(AuditRecord{
+		Action:  "eventsub.verify",
+		Status:  "rejected",
+		EventID: messageID,
+		Detail:  verificationErr.Error(),
+	})
 }
 
 func (s *Server) enforceInstallationRateLimit(

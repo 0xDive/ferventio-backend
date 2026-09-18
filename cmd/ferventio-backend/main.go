@@ -85,6 +85,7 @@ func run(logger *slog.Logger) error {
 		Addr:              cfg.ListenAddress,
 		Handler:           serverApplication.Handler(),
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+		MaxHeaderBytes:    32 << 10,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,

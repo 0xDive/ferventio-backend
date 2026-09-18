@@ -62,3 +62,64 @@ func TestDeliveryQueueRetriesNonSocketTransport(t *testing.T) {
 		t.Fatalf("sender calls = %d, want 2", sender.calls)
 	}
 }
+
+func TestFlushPendingStopsAfterFirstTransportFailure(t *testing.T) {
+	store, err := OpenStore("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	registration := Registration{
+		InstallationID: "device-failure-isolation",
+		DeviceSecret:   "secret",
+		Provider:       "fcm",
+		Platform:       "android",
+	}
+	if err := store.Upsert(registration); err != nil {
+		t.Fatal(err)
+	}
+	deliveries := newMemoryDeliveryStore()
+	now := time.Now().UTC()
+	for index, eventID := range []string{"event-1", "event-2"} {
+		if _, _, err := deliveries.Enqueue(DeliveryRecord{
+			ID:             "delivery-" + eventID,
+			EventID:        eventID,
+			InstallationID: registration.InstallationID,
+			Notification: Notification{
+				EventID: eventID,
+				Type:    "mention",
+				Title:   "title",
+				Body:    "body",
+			},
+			Status:      deliveryStatusPending,
+			AvailableAt: now,
+			ExpiresAt:   now.Add(time.Hour),
+			CreatedAt:   now.Add(time.Duration(index) * time.Millisecond),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sender := &retryTestSender{failures: 2}
+	server := NewServerWithStores(
+		Config{},
+		store,
+		nil,
+		sender,
+		newDiscardLogger(),
+		deliveries,
+		newMemoryAuditStore(),
+	)
+	server.flushPending(registration.InstallationID)
+	if sender.calls != 1 {
+		t.Fatalf("sender calls = %d, want 1 after first transport failure", sender.calls)
+	}
+	records := deliveries.List(10)
+	attempted := 0
+	for _, record := range records {
+		if record.AttemptCount > 0 {
+			attempted++
+		}
+	}
+	if attempted != 1 {
+		t.Fatalf("attempted deliveries = %d, want 1", attempted)
+	}
+}

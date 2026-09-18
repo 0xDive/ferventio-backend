@@ -8,8 +8,10 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestTwitchMetadataCachesTokenAndBadges(t *testing.T) {
@@ -127,4 +129,67 @@ func TestTwitchMetadataHandlerDisabled(t *testing.T) {
 
 func newDiscardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func TestTwitchMetadataChannelCacheIsBoundedAndExpires(t *testing.T) {
+	client := newTwitchMetadataClient(Config{TwitchClientID: "client", TwitchClientSecret: "secret"})
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	client.now = func() time.Time { return now }
+
+	for index := 0; index < maxChannelBadgeCacheEntries+100; index++ {
+		client.cacheChannel(strconv.Itoa(index+1), []byte(`{"data":[]}`))
+	}
+	if got := len(client.channelBadge); got != maxChannelBadgeCacheEntries {
+		t.Fatalf("channel cache size=%d want=%d", got, maxChannelBadgeCacheEntries)
+	}
+
+	now = now.Add(31 * time.Minute)
+	client.cacheChannel("999999999", []byte(`{"data":[]}`))
+	if got := len(client.channelBadge); got != 1 {
+		t.Fatalf("expired channel cache entries were not evicted: size=%d", got)
+	}
+}
+
+func TestTwitchMetadataCoalescesConcurrentChannelMisses(t *testing.T) {
+	var tokenCalls atomic.Int32
+	var badgeCalls atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /oauth2/token", func(w http.ResponseWriter, _ *http.Request) {
+		tokenCalls.Add(1)
+		writeRawJSON(w, http.StatusOK, []byte(`{"access_token":"app-token","expires_in":3600}`))
+	})
+	mux.HandleFunc("GET /helix/chat/badges", func(w http.ResponseWriter, _ *http.Request) {
+		badgeCalls.Add(1)
+		time.Sleep(25 * time.Millisecond)
+		writeRawJSON(w, http.StatusOK, []byte(`{"data":[]}`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := newTwitchMetadataClient(Config{TwitchClientID: "client", TwitchClientSecret: "secret"})
+	client.httpClient = server.Client()
+	client.identityURL = server.URL + "/oauth2/token"
+	client.helixURL = server.URL + "/helix"
+
+	const callers = 20
+	var group sync.WaitGroup
+	errs := make(chan error, callers)
+	for index := 0; index < callers; index++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			_, err := client.channelChatBadges(context.Background(), "12345")
+			errs <- err
+		}()
+	}
+	group.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if tokenCalls.Load() != 1 || badgeCalls.Load() != 1 {
+		t.Fatalf("token calls=%d badge calls=%d, want one each", tokenCalls.Load(), badgeCalls.Load())
+	}
 }

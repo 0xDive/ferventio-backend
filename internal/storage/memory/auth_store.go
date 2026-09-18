@@ -278,6 +278,13 @@ func (s *AuthStore) CreateSession(credentialID, installationID, deviceSecret str
 		return "", time.Time{}, ErrAuthNotFound
 	}
 	now := time.Now().UTC()
+	expectedDeviceHash := hashSecret(deviceSecret)
+	for _, existing := range s.state.Sessions {
+		if existing.InstallationID == installationID && !now.After(existing.ExpiresAt) &&
+			!secureHashEqual(existing.DeviceHash, expectedDeviceHash) {
+			return "", time.Time{}, ErrAuthDeviceMismatch
+		}
+	}
 	for key, existing := range s.state.Sessions {
 		if now.After(existing.ExpiresAt) || existing.InstallationID == installationID {
 			delete(s.state.Sessions, key)
@@ -294,7 +301,7 @@ func (s *AuthStore) CreateSession(credentialID, installationID, deviceSecret str
 	s.state.Sessions[hashSecret(token)] = authSessionRecord{
 		CredentialID:   credentialID,
 		InstallationID: installationID,
-		DeviceHash:     hashSecret(deviceSecret),
+		DeviceHash:     expectedDeviceHash,
 		CreatedAt:      now,
 		ExpiresAt:      expiresAt,
 	}

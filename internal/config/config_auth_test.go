@@ -150,3 +150,11 @@ func testContainsScope(scopes []string, expected string) bool {
 	}
 	return false
 }
+
+func TestLoadConfigRejectsWeakAdminToken(t *testing.T) {
+	clearConfigEnvironment(t)
+	t.Setenv("ADMIN_TOKEN", "too-short")
+	if _, err := LoadConfig(); err == nil || !strings.Contains(err.Error(), "ADMIN_TOKEN") {
+		t.Fatalf("expected weak admin token rejection, got %v", err)
+	}
+}

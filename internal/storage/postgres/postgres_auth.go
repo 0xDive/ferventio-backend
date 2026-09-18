@@ -299,11 +299,26 @@ func (s *PostgresStorage) CreateSession(
 		return "", time.Time{}, ErrAuthNotFound
 	}
 	now := time.Now().UTC()
+	expectedDeviceHash := HashSecret(deviceSecret)
+	if _, err := tx.Exec(ctx, "DELETE FROM auth_sessions WHERE expires_at < $1", now); err != nil {
+		return "", time.Time{}, fmtDatabase("clean expired auth sessions", err)
+	}
+	var existingDeviceHash string
+	err = tx.QueryRow(ctx,
+		"SELECT device_hash FROM auth_sessions WHERE installation_id = $1 FOR UPDATE",
+		installationID,
+	).Scan(&existingDeviceHash)
+	switch {
+	case err == nil && !SecureHashEqual(existingDeviceHash, expectedDeviceHash):
+		return "", time.Time{}, ErrAuthDeviceMismatch
+	case err != nil && !errors.Is(err, pgx.ErrNoRows):
+		return "", time.Time{}, fmtDatabase("load existing installation session", err)
+	}
 	if _, err := tx.Exec(ctx,
-		"DELETE FROM auth_sessions WHERE expires_at < $1 OR installation_id = $2",
-		now, installationID,
+		"DELETE FROM auth_sessions WHERE installation_id = $1 AND device_hash = $2",
+		installationID, expectedDeviceHash,
 	); err != nil {
-		return "", time.Time{}, fmtDatabase("clean auth sessions", err)
+		return "", time.Time{}, fmtDatabase("replace installation auth session", err)
 	}
 	var count int
 	if err := tx.QueryRow(ctx, "SELECT count(*) FROM auth_sessions").Scan(&count); err != nil {
@@ -321,7 +336,7 @@ func (s *PostgresStorage) CreateSession(
         INSERT INTO auth_sessions (
             token_hash, credential_id, installation_id, device_hash, created_at, expires_at
         ) VALUES ($1,$2,$3,$4,$5,$6)`,
-		HashSecret(token), credentialID, installationID, HashSecret(deviceSecret), now, expiresAt,
+		HashSecret(token), credentialID, installationID, expectedDeviceHash, now, expiresAt,
 	)
 	if err != nil {
 		return "", time.Time{}, fmtDatabase("insert auth session", err)

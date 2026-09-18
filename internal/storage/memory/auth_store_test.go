@@ -178,3 +178,47 @@ func TestCreateSessionReplacesPreviousSessionForInstallation(t *testing.T) {
 		t.Fatalf("orphaned credential should be removed, got %v", err)
 	}
 }
+
+func TestCreateSessionRejectsSecretReplacementForInstallation(t *testing.T) {
+	store, err := OpenAuthStore(filepath.Join(t.TempDir(), "auth.json"), testAuthKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	credential := func(id string) authCredential {
+		return authCredential{
+			ID:              id,
+			ClientID:        "client",
+			UserID:          "user",
+			Login:           "tester",
+			Scopes:          []string{"user:read:chat"},
+			AccessToken:     "access-" + id,
+			RefreshToken:    "refresh-" + id,
+			AccessExpiresAt: now.Add(time.Hour),
+			LastValidatedAt: now,
+			UpdatedAt:       now,
+		}
+	}
+	if err := store.PutCredential(credential("original")); err != nil {
+		t.Fatal(err)
+	}
+	originalSecret := strings.Repeat("o", 48)
+	originalToken, _, err := store.CreateSession("original", "public-installation-id", originalSecret, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutCredential(credential("attacker")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CreateSession(
+		"attacker",
+		"public-installation-id",
+		strings.Repeat("a", 48),
+		time.Hour,
+	); !errors.Is(err, ErrAuthDeviceMismatch) {
+		t.Fatalf("secret replacement error=%v, want ErrAuthDeviceMismatch", err)
+	}
+	if _, err := store.ResolveSession(originalToken, "public-installation-id", originalSecret, 0); err != nil {
+		t.Fatalf("original session must remain valid after rejected replacement: %v", err)
+	}
+}

@@ -1,8 +1,12 @@
 package application
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestValidateRegistration(t *testing.T) {
+	strongSecret := strings.Repeat("s", 48)
 	tests := []struct {
 		name         string
 		registration Registration
@@ -12,7 +16,7 @@ func TestValidateRegistration(t *testing.T) {
 			name: "android fcm",
 			registration: Registration{
 				InstallationID:       "installation",
-				DeviceSecret:         "secret",
+				DeviceSecret:         strongSecret,
 				Provider:             "fcm",
 				FirebaseInstallation: "fid",
 				Platform:             "android",
@@ -22,7 +26,7 @@ func TestValidateRegistration(t *testing.T) {
 			name: "android unifiedpush",
 			registration: Registration{
 				InstallationID: "installation",
-				DeviceSecret:   "secret",
+				DeviceSecret:   strongSecret,
 				Provider:       "unifiedpush",
 				Endpoint:       "https://push.example/endpoint",
 				P256DH:         "public-key",
@@ -34,17 +38,27 @@ func TestValidateRegistration(t *testing.T) {
 			name: "ios apns",
 			registration: Registration{
 				InstallationID:  "installation",
-				DeviceSecret:    "secret",
+				DeviceSecret:    strongSecret,
 				Provider:        "apns",
 				APNsDeviceToken: "0123456789abcdef",
 				Platform:        "ios",
 			},
 		},
 		{
+			name: "weak device secret",
+			registration: Registration{
+				InstallationID: "installation",
+				DeviceSecret:   "short",
+				Provider:       "embedded_socket",
+				Platform:       "android",
+			},
+			wantError: true,
+		},
+		{
 			name: "missing fcm fid",
 			registration: Registration{
 				InstallationID: "installation",
-				DeviceSecret:   "secret",
+				DeviceSecret:   strongSecret,
 				Provider:       "fcm",
 				Platform:       "android",
 			},
@@ -54,7 +68,7 @@ func TestValidateRegistration(t *testing.T) {
 			name: "missing apns token",
 			registration: Registration{
 				InstallationID: "installation",
-				DeviceSecret:   "secret",
+				DeviceSecret:   strongSecret,
 				Provider:       "apns",
 				Platform:       "ios",
 			},
@@ -64,7 +78,7 @@ func TestValidateRegistration(t *testing.T) {
 			name: "apns cannot claim android",
 			registration: Registration{
 				InstallationID:  "installation",
-				DeviceSecret:    "secret",
+				DeviceSecret:    strongSecret,
 				Provider:        "apns",
 				APNsDeviceToken: "token",
 				Platform:        "android",
@@ -75,7 +89,7 @@ func TestValidateRegistration(t *testing.T) {
 			name: "fcm cannot claim ios",
 			registration: Registration{
 				InstallationID:       "installation",
-				DeviceSecret:         "secret",
+				DeviceSecret:         strongSecret,
 				Provider:             "fcm",
 				FirebaseInstallation: "fid",
 				Platform:             "ios",
@@ -86,7 +100,7 @@ func TestValidateRegistration(t *testing.T) {
 			name: "unsupported platform",
 			registration: Registration{
 				InstallationID: "installation",
-				DeviceSecret:   "secret",
+				DeviceSecret:   strongSecret,
 				Provider:       "embedded_socket",
 				Platform:       "desktop",
 			},
