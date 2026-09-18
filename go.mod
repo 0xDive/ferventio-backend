@@ -7,7 +7,7 @@ toolchain go1.26.8
 require (
 	firebase.google.com/go/v4 v4.21.0
 	github.com/SherClockHolmes/webpush-go v1.4.0
-	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jackc/pgx/v5 v5.11.0
 	golang.org/x/net v0.58.0
 	golang.org/x/sync v0.22.0
 )
