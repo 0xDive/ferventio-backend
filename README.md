@@ -83,6 +83,12 @@ Start from [`config/examples/backend.env`](config/examples/backend.env). Product
 
 Keep `.env`, `.secrets/`, database dumps, encryption keys, APNs private keys and tokens out of Git.
 
+The Compose stack publishes the backend on `127.0.0.1` by default via
+`BACKEND_BIND_ADDRESS`, preventing direct Internet access to the raw origin port.
+Keep that default when TLS/reverse-proxy or tunnel ingress runs on the same host; if
+you must override it, restrict the published port with a host firewall or trusted
+private network.
+
 ## Operations
 
 ```bash

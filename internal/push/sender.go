@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/messaging"
@@ -13,21 +14,24 @@ import (
 
 	"github.com/0xDive/ferventio-backend/internal/config"
 	"github.com/0xDive/ferventio-backend/internal/domain"
+	securitypkg "github.com/0xDive/ferventio-backend/internal/security"
 )
 
 type Sender struct {
-	firebaseClient  *messaging.Client
-	apns            *apnsSender
-	vapidPublicKey  string
-	vapidPrivateKey string
-	vapidSubscriber string
+	firebaseClient        *messaging.Client
+	apns                  *apnsSender
+	unifiedPushHTTPClient *http.Client
+	vapidPublicKey        string
+	vapidPrivateKey       string
+	vapidSubscriber       string
 }
 
 func NewSender(ctx context.Context, cfg config.Config) (*Sender, error) {
 	sender := &Sender{
-		vapidPublicKey:  cfg.VAPIDPublicKey,
-		vapidPrivateKey: cfg.VAPIDPrivateKey,
-		vapidSubscriber: cfg.VAPIDSubscriber,
+		unifiedPushHTTPClient: securitypkg.NewPublicHTTPSClient(10 * time.Second),
+		vapidPublicKey:        cfg.VAPIDPublicKey,
+		vapidPrivateKey:       cfg.VAPIDPrivateKey,
+		vapidSubscriber:       cfg.VAPIDSubscriber,
 	}
 	if cfg.FirebaseMessagingEnabled() {
 		firebaseApp, err := firebase.NewApp(ctx, &firebase.Config{ProjectID: cfg.FirebaseProjectID})
@@ -70,7 +74,7 @@ func (s *Sender) Send(ctx context.Context, registration domain.Registration, not
 	case "fcm":
 		return s.sendFCM(ctx, registration.FirebaseInstallation, payload)
 	case "unifiedpush":
-		return s.sendUnifiedPush(registration, payload)
+		return s.sendUnifiedPush(ctx, registration, payload)
 	default:
 		return fmt.Errorf("unsupported provider %q", registration.Provider)
 	}
@@ -96,21 +100,29 @@ func (s *Sender) sendFCM(ctx context.Context, fid string, payload []byte) error 
 	return nil
 }
 
-func (s *Sender) sendUnifiedPush(registration domain.Registration, payload []byte) error {
+func (s *Sender) sendUnifiedPush(ctx context.Context, registration domain.Registration, payload []byte) error {
 	if s.vapidPublicKey == "" || s.vapidPrivateKey == "" {
 		return errors.New("VAPID is not configured on the server")
 	}
 	if registration.Endpoint == "" || registration.P256DH == "" || registration.Auth == "" {
 		return errors.New("UnifiedPush Web Push subscription is incomplete")
 	}
+	if err := securitypkg.ValidatePublicHTTPSURL(registration.Endpoint); err != nil {
+		return fmt.Errorf("UnifiedPush endpoint is not allowed: %w", err)
+	}
+	client := s.unifiedPushHTTPClient
+	if client == nil {
+		client = securitypkg.NewPublicHTTPSClient(10 * time.Second)
+	}
 
-	response, err := webpush.SendNotification(payload, &webpush.Subscription{
+	response, err := webpush.SendNotificationWithContext(ctx, payload, &webpush.Subscription{
 		Endpoint: registration.Endpoint,
 		Keys: webpush.Keys{
 			P256dh: registration.P256DH,
 			Auth:   registration.Auth,
 		},
 	}, &webpush.Options{
+		HTTPClient:      client,
 		Subscriber:      s.vapidSubscriber,
 		VAPIDPublicKey:  s.vapidPublicKey,
 		VAPIDPrivateKey: s.vapidPrivateKey,

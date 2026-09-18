@@ -42,12 +42,29 @@ jobs:
         run: ./scripts/security/scan-repository-secrets.sh
       - name: Architecture boundaries
         run: ./scripts/architecture/check-package-boundaries.sh
+      - name: Verify module graph is tidy
+        run: |
+          go mod tidy
+          if ! git diff --exit-code -- go.mod go.sum; then
+            printf '%s\n' 'go.mod/go.sum require go mod tidy' >&2
+            exit 1
+          fi
       - name: Verify module checksums
         run: go mod verify
       - name: Verify formatting
-        run: test -z "$(gofmt -l $(find . -type f -name '*.go' -not -path './vendor/*'))"
+        run: |
+          unformatted="$(gofmt -l $(find . -type f -name '*.go' -not -path './vendor/*'))"
+          if [ -n "$unformatted" ]; then
+            printf '%s\n' 'Go files require gofmt:' "$unformatted" >&2
+            gofmt -d $unformatted
+            exit 1
+          fi
       - name: Vet
         run: go vet ./...
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+      - name: Go vulnerability scan
+        run: govulncheck ./...
       - name: Unit tests
         run: go test -race -coverprofile=coverage.out ./...
       - name: PostgreSQL integration tests
@@ -57,6 +74,8 @@ jobs:
           CGO_ENABLED=0 go build -trimpath ./cmd/ferventio-backend
           CGO_ENABLED=0 go build -trimpath ./cmd/ferventio-migrate-json
           CGO_ENABLED=0 go build -trimpath ./cmd/vapid
+      - name: Build hardened runtime image
+        run: docker build --pull --tag ferventio-backend:ci .
       - name: Validate Compose configuration
         run: |
           cp config/examples/backend.env .env

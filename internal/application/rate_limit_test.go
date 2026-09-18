@@ -142,3 +142,55 @@ func TestInstallationRateKeyRequiresBothDeviceValues(t *testing.T) {
 		t.Fatalf("unsafe installation rate key: %q %q", first, second)
 	}
 }
+
+func TestInvalidEventSubSignatureGetsDedicatedRateLimit(t *testing.T) {
+	cfg := Config{
+		EventSubSecret:                 "eventsub-secret-value",
+		RequestBodyMaxBytes:            64 << 10,
+		RateLimitGeneralPerMinute:      100,
+		RateLimitGeneralBurst:          10,
+		RateLimitAuthPerMinute:         100,
+		RateLimitAuthBurst:             10,
+		RateLimitInstallationPerMinute: 100,
+		RateLimitInstallationBurst:     10,
+		RateLimitAdminPerMinute:        100,
+		RateLimitAdminBurst:            10,
+		RateLimitMaxKeys:               100,
+		RateLimitIdleTTL:               time.Hour,
+	}
+	audit := newMemoryAuditStore()
+	server := NewServerWithStores(
+		cfg,
+		nil,
+		nil,
+		nil,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		nil,
+		audit,
+	)
+	handler := server.Handler()
+	for attempt := 0; attempt < eventSubInvalidBurst+1; attempt++ {
+		request := httptest.NewRequest(http.MethodPost, "/v1/eventsub/webhook", strings.NewReader("{}"))
+		request.RemoteAddr = "198.51.100.20:1234"
+		request.Header.Set("Twitch-Eventsub-Message-Id", strings.Repeat("x", 1024))
+		request.Header.Set("Twitch-Eventsub-Message-Timestamp", time.Now().UTC().Format(time.RFC3339Nano))
+		request.Header.Set("Twitch-Eventsub-Message-Signature", "sha256=00")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if attempt < eventSubInvalidBurst && response.Code != http.StatusForbidden {
+			t.Fatalf("attempt %d status=%d body=%s", attempt, response.Code, response.Body.String())
+		}
+		if attempt == eventSubInvalidBurst && response.Code != http.StatusTooManyRequests {
+			t.Fatalf("rate-limited attempt status=%d body=%s", response.Code, response.Body.String())
+		}
+	}
+	records := audit.List(100)
+	if len(records) == 0 {
+		t.Fatal("expected bounded invalid EventSub audit records")
+	}
+	for _, record := range records {
+		if record.Action == "eventsub.verify" && len(record.EventID) > 256 {
+			t.Fatalf("oversized EventSub ID reached audit log: %d", len(record.EventID))
+		}
+	}
+}

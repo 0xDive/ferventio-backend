@@ -43,6 +43,7 @@ type Server struct {
 	rateLimitAuthPolicy         rateLimitPolicy
 	rateLimitInstallationPolicy rateLimitPolicy
 	rateLimitAdminPolicy        rateLimitPolicy
+	preAuthSockets              chan struct{}
 	log                         *slog.Logger
 }
 
@@ -100,6 +101,7 @@ func New(deps Dependencies) *Server {
 		eventSubReconcile: make(chan struct{}, 1),
 		eventSub:          newEventSubManager(deps.Config),
 		metadata:          newTwitchMetadataClient(deps.Config),
+		preAuthSockets:    make(chan struct{}, maxPreAuthSockets),
 		oauth:             newTwitchOAuthClient(deps.Config, deps.Auth),
 		rateLimiter:       newRateLimiter(rateLimitMaxKeys(deps.Config), rateLimitIdleTTL(deps.Config)),
 		rateLimitGeneralPolicy: rateLimitPolicy{
@@ -415,7 +417,7 @@ func (s *Server) selfTest(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.deliverToRegistration(r.Context(), registration, notification); err != nil {
 		s.log.Error("self test push failed", "error", err, "installation", registration.InstallationID)
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusBadGateway, "push delivery failed")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "sent"})
@@ -492,6 +494,7 @@ func normalizeRegistration(registration *Registration) {
 	registration.Platform = strings.ToLower(strings.TrimSpace(registration.Platform))
 	registration.Provider = strings.ToLower(strings.TrimSpace(registration.Provider))
 	registration.APNsDeviceToken = strings.TrimSpace(registration.APNsDeviceToken)
+	registration.Endpoint = strings.TrimSpace(registration.Endpoint)
 	if registration.Platform == "" {
 		// 0.9.5 Android clients omitted this default value because kotlinx.serialization
 		// does not encode default-valued properties unless encodeDefaults is enabled.
@@ -500,8 +503,8 @@ func normalizeRegistration(registration *Registration) {
 }
 
 func validateRegistration(registration Registration) error {
-	if registration.InstallationID == "" || registration.DeviceSecret == "" {
-		return errors.New("installationId and deviceSecret are required")
+	if err := validateMobileDevice(registration.InstallationID, registration.DeviceSecret); err != nil {
+		return err
 	}
 	switch registration.Platform {
 	case "android":
@@ -513,6 +516,9 @@ func validateRegistration(registration Registration) error {
 		case "unifiedpush":
 			if registration.Endpoint == "" || registration.P256DH == "" || registration.Auth == "" {
 				return errors.New("endpoint, p256dh and auth are required for UnifiedPush")
+			}
+			if err := validatePublicHTTPSURL(registration.Endpoint); err != nil {
+				return errors.New("UnifiedPush endpoint must be a public HTTPS URL")
 			}
 		case "embedded_socket":
 			// The device authenticates the persistent WebSocket with installationId and deviceSecret.

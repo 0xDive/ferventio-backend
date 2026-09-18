@@ -3,10 +3,18 @@ package postgres
 import (
 	. "github.com/0xDive/ferventio-backend/internal/domain"
 	"log/slog"
+	"strings"
 	"time"
 )
 
 func (s *PostgresStorage) Append(record AuditRecord) error {
+	record.Action = truncateAuditText(record.Action, 128)
+	record.Status = truncateAuditText(record.Status, 64)
+	record.InstallationID = truncateAuditText(record.InstallationID, 256)
+	record.UserID = truncateAuditText(record.UserID, 256)
+	record.ChannelID = truncateAuditText(record.ChannelID, 256)
+	record.EventID = truncateAuditText(record.EventID, 256)
+	record.Detail = truncateAuditText(record.Detail, 1_000)
 	if record.ID == "" {
 		value, err := RandomToken("audit_", 12)
 		if err != nil {
@@ -16,9 +24,6 @@ func (s *PostgresStorage) Append(record AuditRecord) error {
 	}
 	if record.Timestamp.IsZero() {
 		record.Timestamp = time.Now().UTC()
-	}
-	if len(record.Detail) > 1_000 {
-		record.Detail = record.Detail[:1_000]
 	}
 	ctx, cancel := databaseTimeoutContext()
 	defer cancel()
@@ -85,4 +90,16 @@ func (s *PostgresStorage) listAudit(limit int) []AuditRecord {
 		return nil
 	}
 	return result
+}
+
+func truncateAuditText(value string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+	value = strings.ToValidUTF8(value, "�")
+	runes := []rune(value)
+	if len(runes) <= maxRunes {
+		return value
+	}
+	return string(runes[:maxRunes])
 }

@@ -28,17 +28,28 @@ func (s *Server) eventSubWebhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "EventSub webhook is not configured")
 		return
 	}
+	messageID := strings.TrimSpace(r.Header.Get("Twitch-Eventsub-Message-Id"))
+	messageTimestamp := strings.TrimSpace(r.Header.Get("Twitch-Eventsub-Message-Timestamp"))
+	signature := strings.TrimSpace(r.Header.Get("Twitch-Eventsub-Message-Signature"))
+	if err := validateEventSubVerificationHeaders(messageID, messageTimestamp, signature); err != nil {
+		if !s.enforceInvalidEventSubRateLimit(w, r) {
+			return
+		}
+		s.auditInvalidEventSubVerification(boundedEventSubMessageID(messageID), err)
+		writeError(w, http.StatusForbidden, "invalid EventSub signature")
+		return
+	}
+
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, s.cfg.RequestBodyMaxBytes))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid EventSub body")
 		return
 	}
-	messageID := strings.TrimSpace(r.Header.Get("Twitch-Eventsub-Message-Id"))
-	messageTimestamp := strings.TrimSpace(r.Header.Get("Twitch-Eventsub-Message-Timestamp"))
-	signature := strings.TrimSpace(r.Header.Get("Twitch-Eventsub-Message-Signature"))
 	if err := verifyEventSubMessage(s.cfg.EventSubSecret, messageID, messageTimestamp, signature, body, time.Now().UTC()); err != nil {
-		s.log.Warn("EventSub verification failed", "error", err, "message_id", messageID)
-		s.auditRecord(AuditRecord{Action: "eventsub.verify", Status: "rejected", EventID: messageID, Detail: err.Error()})
+		if !s.enforceInvalidEventSubRateLimit(w, r) {
+			return
+		}
+		s.auditInvalidEventSubVerification(boundedEventSubMessageID(messageID), err)
 		writeError(w, http.StatusForbidden, "invalid EventSub signature")
 		return
 	}
@@ -118,6 +129,19 @@ func (s *Server) eventSubWebhook(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusBadRequest, "unsupported EventSub message type")
 	}
+}
+
+func validateEventSubVerificationHeaders(messageID, rawTimestamp, signature string) error {
+	if messageID == "" || rawTimestamp == "" || signature == "" {
+		return errors.New("missing EventSub verification headers")
+	}
+	if len(messageID) > 128 || len(rawTimestamp) > 64 || len(signature) != len("sha256=")+sha256.Size*2 {
+		return errors.New("invalid EventSub verification header length")
+	}
+	if !strings.HasPrefix(signature, "sha256=") {
+		return errors.New("invalid EventSub signature format")
+	}
+	return nil
 }
 
 func verifyEventSubMessage(secret, messageID, rawTimestamp, signature string, body []byte, now time.Time) error {
@@ -617,3 +641,12 @@ func nonBlank(values []string) []string {
 }
 
 func routingContext() context.Context { return context.Background() }
+
+func boundedEventSubMessageID(value string) string {
+	const maximum = 256
+	value = strings.TrimSpace(value)
+	if len(value) <= maximum {
+		return value
+	}
+	return value[:maximum]
+}

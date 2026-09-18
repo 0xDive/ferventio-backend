@@ -1,9 +1,11 @@
 package application
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,8 +14,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"context"
 )
 
 func TestVerifyEventSubMessage(t *testing.T) {
@@ -248,5 +248,38 @@ func TestContainsMentionRequiresLoginBoundary(t *testing.T) {
 				t.Fatalf("containsMention(%q, %q) = %v, want %v", test.text, test.login, got, test.want)
 			}
 		})
+	}
+}
+
+type failIfReadReader struct {
+	read bool
+}
+
+func (r *failIfReadReader) Read(_ []byte) (int, error) {
+	r.read = true
+	return 0, errors.New("body should not be read")
+}
+
+func TestEventSubMalformedHeadersRejectedBeforeBodyRead(t *testing.T) {
+	body := &failIfReadReader{}
+	server := NewServer(
+		Config{EventSubSecret: "eventsub-secret-value", RequestBodyMaxBytes: 64 << 10},
+		nil,
+		nil,
+		nil,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/v1/eventsub/webhook", body)
+	request.Header.Set("Twitch-Eventsub-Message-Id", strings.Repeat("x", 129))
+	request.Header.Set("Twitch-Eventsub-Message-Timestamp", time.Now().UTC().Format(time.RFC3339Nano))
+	request.Header.Set("Twitch-Eventsub-Message-Signature", "sha256="+strings.Repeat("0", 64))
+	response := httptest.NewRecorder()
+
+	server.eventSubWebhook(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if body.read {
+		t.Fatal("malformed EventSub headers caused request body to be read")
 	}
 }

@@ -20,4 +20,7 @@ func TestNewSenderDoesNotResolveCredentialsWhenFirebaseDisabled(t *testing.T) {
 	if sender.firebaseClient != nil {
 		t.Fatal("disabled Firebase unexpectedly created a messaging client")
 	}
+	if sender.unifiedPushHTTPClient == nil {
+		t.Fatal("UnifiedPush client must be initialized with outbound restrictions")
+	}
 }

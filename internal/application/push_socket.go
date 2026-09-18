@@ -19,9 +19,12 @@ import (
 )
 
 const (
-	websocketGUID          = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-	maxSocketMessageBytes  = 64 << 10
-	defaultHeartbeatPeriod = 45 * time.Second
+	websocketGUID                   = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+	maxSocketMessageBytes           = 64 << 10
+	defaultHeartbeatPeriod          = 45 * time.Second
+	pushSocketAuthenticationTimeout = 20 * time.Second
+	maxPreAuthSockets               = 256
+	deliveryWorkerConcurrency       = 8
 )
 
 type pushSocketConnection struct {
@@ -89,8 +92,16 @@ func (c *pushSocketConnection) writeFrame(opcode byte, payload []byte) error {
 }
 
 func (c *pushSocketConnection) readText() ([]byte, error) {
+	return c.readTextWithDeadline(time.Time{})
+}
+
+func (c *pushSocketConnection) readTextWithDeadline(absoluteDeadline time.Time) ([]byte, error) {
 	for {
-		if err := c.conn.SetReadDeadline(time.Now().Add(2 * defaultHeartbeatPeriod)); err != nil {
+		readDeadline := time.Now().Add(2 * defaultHeartbeatPeriod)
+		if !absoluteDeadline.IsZero() && absoluteDeadline.Before(readDeadline) {
+			readDeadline = absoluteDeadline
+		}
+		if err := c.conn.SetReadDeadline(readDeadline); err != nil {
 			return nil, err
 		}
 		first, err := c.reader.ReadByte()
@@ -104,8 +115,8 @@ func (c *pushSocketConnection) readText() ([]byte, error) {
 		fin := first&0x80 != 0
 		opcode := first & 0x0f
 		masked := second&0x80 != 0
-		if !fin {
-			return nil, errors.New("fragmented WebSocket frames are not supported")
+		if first&0x70 != 0 {
+			return nil, errors.New("WebSocket reserved bits are not supported")
 		}
 		if !masked {
 			return nil, errors.New("client WebSocket frame is not masked")
@@ -124,6 +135,16 @@ func (c *pushSocketConnection) readText() ([]byte, error) {
 				return nil, err
 			}
 			length = binary.BigEndian.Uint64(value[:])
+		}
+		if opcode >= 0x8 {
+			if !fin {
+				return nil, errors.New("fragmented WebSocket control frame")
+			}
+			if length > 125 {
+				return nil, errors.New("WebSocket control frame exceeds 125 bytes")
+			}
+		} else if !fin {
+			return nil, errors.New("fragmented WebSocket frames are not supported")
 		}
 		if length > maxSocketMessageBytes {
 			return nil, fmt.Errorf("WebSocket frame exceeds %d bytes", maxSocketMessageBytes)
@@ -215,6 +236,24 @@ func (h *PushHub) Close(installationID string) {
 }
 
 func (s *Server) pushSocket(w http.ResponseWriter, r *http.Request) {
+	preAuthHeld := false
+	if s.preAuthSockets != nil {
+		select {
+		case s.preAuthSockets <- struct{}{}:
+			preAuthHeld = true
+		default:
+			writeError(w, http.StatusServiceUnavailable, "too many unauthenticated WebSocket connections")
+			return
+		}
+	}
+	releasePreAuth := func() {
+		if preAuthHeld {
+			<-s.preAuthSockets
+			preAuthHeld = false
+		}
+	}
+	defer releasePreAuth()
+
 	connection, err := upgradePushSocket(w, r)
 	if err != nil {
 		s.log.Warn("push WebSocket upgrade failed", "error", err)
@@ -228,6 +267,7 @@ func (s *Server) pushSocket(w http.ResponseWriter, r *http.Request) {
 		s.auditRecord(AuditRecord{Action: "push.socket.authenticate", Status: "rejected", Detail: err.Error()})
 		return
 	}
+	releasePreAuth()
 	s.hub.Attach(connection)
 	s.auditRecord(AuditRecord{
 		Action:         "push.socket.connect",
@@ -311,7 +351,7 @@ func (s *Server) pushSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) authenticatePushSocket(connection *pushSocketConnection) (Registration, error) {
-	payload, err := connection.readText()
+	payload, err := connection.readTextWithDeadline(time.Now().Add(pushSocketAuthenticationTimeout))
 	if err != nil {
 		return Registration{}, fmt.Errorf("read authentication: %w", err)
 	}
@@ -485,7 +525,10 @@ func (s *Server) flushPending(installationID string) {
 				EventID:        payload.EventID,
 				Detail:         err.Error(),
 			})
-			continue
+			// A failed transport is likely to fail every queued item for the same
+			// installation. Stop after one attempt so one slow/broken endpoint cannot
+			// monopolize this flush for up to the whole pending batch.
+			return
 		}
 		sentAt := time.Now().UTC()
 		_ = s.deliveries.MarkSent(record.ID, sentAt)
@@ -502,6 +545,39 @@ func (s *Server) flushPending(installationID string) {
 	}
 }
 
+func (s *Server) flushPendingInstallations(ctx context.Context) {
+	registrations := s.store.List()
+	workerCount := minInt(deliveryWorkerConcurrency, len(registrations))
+	if workerCount == 0 {
+		return
+	}
+	jobs := make(chan string)
+	var workers sync.WaitGroup
+	for index := 0; index < workerCount; index++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for installationID := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				s.flushPending(installationID)
+			}
+		}()
+	}
+	for _, registration := range registrations {
+		select {
+		case <-ctx.Done():
+			close(jobs)
+			workers.Wait()
+			return
+		case jobs <- registration.InstallationID:
+		}
+	}
+	close(jobs)
+	workers.Wait()
+}
+
 func (s *Server) runDeliveryWorker(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -510,9 +586,7 @@ func (s *Server) runDeliveryWorker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			for _, registration := range s.store.List() {
-				s.flushPending(registration.InstallationID)
-			}
+			s.flushPendingInstallations(ctx)
 			_ = s.deliveries.Cleanup(time.Now().UTC())
 		}
 	}

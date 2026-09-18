@@ -143,6 +143,9 @@ func LoadConfig() (Config, error) {
 	if err != nil || (parsedDatabaseURL.Scheme != "postgres" && parsedDatabaseURL.Scheme != "postgresql") || parsedDatabaseURL.Host == "" {
 		return Config{}, fmt.Errorf("DATABASE_URL must be an absolute postgres:// or postgresql:// URL")
 	}
+	if cfg.AdminToken != "" && (len(cfg.AdminToken) < 32 || len(cfg.AdminToken) > 512) {
+		return Config{}, fmt.Errorf("ADMIN_TOKEN must contain 32 to 512 characters when configured")
+	}
 
 	if cfg.FirebaseEnabled && cfg.FirebaseProjectID == "" {
 		return Config{}, fmt.Errorf("FIREBASE_PROJECT_ID is required when FIREBASE_ENABLED=true")

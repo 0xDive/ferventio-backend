@@ -15,6 +15,9 @@ func hashSecret(value string) string { return securitypkg.HashSecret(value) }
 func secureHashEqual(left, right string) bool {
 	return securitypkg.EqualHash(left, right)
 }
+func validatePublicHTTPSURL(raw string) error {
+	return securitypkg.ValidatePublicHTTPSURL(raw)
+}
 func minInt(left, right int) int {
 	if left < right {
 		return left
