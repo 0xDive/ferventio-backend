@@ -45,7 +45,7 @@ func TestPostgresStorageRegistrationRoundTrip(t *testing.T) {
 		NotificationChannelRules: map[string][]string{
 			"123": {"reply", "automod_hold"},
 		},
-		UpdatedAt:      time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
 	}
 	if err := storage.Upsert(registration); err != nil {
 		t.Fatalf("upsert registration: %v", err)
