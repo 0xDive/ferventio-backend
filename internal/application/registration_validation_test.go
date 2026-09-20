@@ -143,3 +143,21 @@ func TestNormalizeRegistrationCanonicalizesTransport(t *testing.T) {
 		t.Fatalf("APNsDeviceToken = %q", registration.APNsDeviceToken)
 	}
 }
+
+func TestNormalizeNotificationChannelRulesKeepsOnlyRegisteredChannels(t *testing.T) {
+	got := normalizeNotificationChannelRules(
+		map[string][]string{
+			" channel-1 ": {"reply", " reply ", "automod_hold"},
+			"other":       {"mention"},
+		},
+		[]string{"channel-1", "channel-2"},
+	)
+	if len(got) != 1 {
+		t.Fatalf("rules = %#v, want one channel", got)
+	}
+	want := []string{"reply", "automod_hold"}
+	if current := got["channel-1"]; len(current) != len(want) ||
+		current[0] != want[0] || current[1] != want[1] {
+		t.Fatalf("channel-1 rules = %#v, want %#v", current, want)
+	}
+}

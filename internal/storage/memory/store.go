@@ -31,6 +31,7 @@ func (s *Store) Upsert(registration Registration) error {
 	}
 	registration.DeviceSecretHash = hashSecret(providedSecret)
 	registration.DeviceSecret = ""
+	registration.NotificationChannelRules = cloneNotificationChannelRules(registration.NotificationChannelRules)
 	s.registrations[registration.InstallationID] = registration
 	return s.persistLocked()
 }

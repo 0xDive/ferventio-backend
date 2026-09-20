@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	. "github.com/0xDive/ferventio-backend/internal/domain"
 	"log/slog"
 	"sort"
 	"strings"
 
+	. "github.com/0xDive/ferventio-backend/internal/domain"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -271,15 +271,15 @@ func publicRegistration(registration Registration) Registration {
 	return registration
 }
 
-func notificationChannelRulesJSON(value map[string][]string) []byte {
+func notificationChannelRulesJSON(value map[string][]string) string {
 	if len(value) == 0 {
-		return []byte("{}")
+		return "{}"
 	}
 	encoded, err := json.Marshal(value)
 	if err != nil {
-		return []byte("{}")
+		return "{}"
 	}
-	return encoded
+	return string(encoded)
 }
 
 func cloneNotificationChannelRules(value map[string][]string) map[string][]string {
