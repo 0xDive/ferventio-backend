@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	. "github.com/0xDive/ferventio-backend/internal/domain"
@@ -14,8 +15,8 @@ import (
 const registrationColumns = `
     installation_id, device_secret_hash, provider, firebase_installation_id,
     apns_device_token, endpoint, p256dh, auth, app_version, platform, user_id, user_login,
-    channel_ids, moderator_channel_ids, notification_rules, highlight_phrases,
-    selected_user_logins, updated_at`
+    channel_ids, moderator_channel_ids, notification_rules, notification_channel_rules,
+    highlight_phrases, selected_user_logins, updated_at`
 
 func (s *PostgresStorage) Upsert(registration Registration) error {
 	if strings.TrimSpace(registration.InstallationID) == "" || registration.DeviceSecret == "" {
@@ -47,10 +48,10 @@ func (s *PostgresStorage) Upsert(registration Registration) error {
         INSERT INTO push_registrations (
             installation_id, device_secret_hash, provider, firebase_installation_id,
             apns_device_token, endpoint, p256dh, auth, app_version, platform, user_id, user_login,
-            channel_ids, moderator_channel_ids, notification_rules, highlight_phrases,
-            selected_user_logins, updated_at
+            channel_ids, moderator_channel_ids, notification_rules, notification_channel_rules,
+            highlight_phrases, selected_user_logins, updated_at
         ) VALUES (
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
         )
         ON CONFLICT (installation_id) DO UPDATE SET
             device_secret_hash = EXCLUDED.device_secret_hash,
@@ -67,6 +68,7 @@ func (s *PostgresStorage) Upsert(registration Registration) error {
             channel_ids = EXCLUDED.channel_ids,
             moderator_channel_ids = EXCLUDED.moderator_channel_ids,
             notification_rules = EXCLUDED.notification_rules,
+            notification_channel_rules = EXCLUDED.notification_channel_rules,
             highlight_phrases = EXCLUDED.highlight_phrases,
             selected_user_logins = EXCLUDED.selected_user_logins,
             updated_at = EXCLUDED.updated_at`,
@@ -85,6 +87,7 @@ func (s *PostgresStorage) Upsert(registration Registration) error {
 		nonNilStrings(registration.ChannelIDs),
 		nonNilStrings(registration.ModeratorChannelIDs),
 		nonNilStrings(registration.NotificationRules),
+		notificationChannelRulesJSON(registration.NotificationChannelRules),
 		nonNilStrings(registration.HighlightPhrases),
 		nonNilStrings(registration.SelectedUserLogins),
 		registration.UpdatedAt,
@@ -223,6 +226,7 @@ type registrationScanner interface {
 
 func scanRegistration(scanner registrationScanner) (Registration, error) {
 	var registration Registration
+	var notificationChannelRules []byte
 	err := scanner.Scan(
 		&registration.InstallationID,
 		&registration.DeviceSecretHash,
@@ -239,11 +243,20 @@ func scanRegistration(scanner registrationScanner) (Registration, error) {
 		&registration.ChannelIDs,
 		&registration.ModeratorChannelIDs,
 		&registration.NotificationRules,
+		&notificationChannelRules,
 		&registration.HighlightPhrases,
 		&registration.SelectedUserLogins,
 		&registration.UpdatedAt,
 	)
-	return registration, err
+	if err != nil {
+		return registration, err
+	}
+	if len(notificationChannelRules) > 0 {
+		if err := json.Unmarshal(notificationChannelRules, &registration.NotificationChannelRules); err != nil {
+			return Registration{}, fmt.Errorf("decode notification channel rules: %w", err)
+		}
+	}
+	return registration, nil
 }
 
 func publicRegistration(registration Registration) Registration {
@@ -252,9 +265,32 @@ func publicRegistration(registration Registration) Registration {
 	registration.ChannelIDs = append([]string(nil), registration.ChannelIDs...)
 	registration.ModeratorChannelIDs = append([]string(nil), registration.ModeratorChannelIDs...)
 	registration.NotificationRules = append([]string(nil), registration.NotificationRules...)
+	registration.NotificationChannelRules = cloneNotificationChannelRules(registration.NotificationChannelRules)
 	registration.HighlightPhrases = append([]string(nil), registration.HighlightPhrases...)
 	registration.SelectedUserLogins = append([]string(nil), registration.SelectedUserLogins...)
 	return registration
+}
+
+func notificationChannelRulesJSON(value map[string][]string) []byte {
+	if len(value) == 0 {
+		return []byte("{}")
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return []byte("{}")
+	}
+	return encoded
+}
+
+func cloneNotificationChannelRules(value map[string][]string) map[string][]string {
+	if len(value) == 0 {
+		return nil
+	}
+	result := make(map[string][]string, len(value))
+	for channelID, rules := range value {
+		result[channelID] = append([]string(nil), rules...)
+	}
+	return result
 }
 
 func nonNilStrings(values []string) []string {

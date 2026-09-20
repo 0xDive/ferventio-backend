@@ -45,6 +45,7 @@ func (s *Store) List() []Registration {
 		registration.ChannelIDs = append([]string(nil), registration.ChannelIDs...)
 		registration.ModeratorChannelIDs = append([]string(nil), registration.ModeratorChannelIDs...)
 		registration.NotificationRules = append([]string(nil), registration.NotificationRules...)
+		registration.NotificationChannelRules = cloneNotificationChannelRules(registration.NotificationChannelRules)
 		registration.HighlightPhrases = append([]string(nil), registration.HighlightPhrases...)
 		registration.SelectedUserLogins = append([]string(nil), registration.SelectedUserLogins...)
 		result = append(result, registration)
@@ -61,6 +62,7 @@ func (s *Store) Get(installationID string) (Registration, error) {
 	}
 	registration.DeviceSecret = ""
 	registration.DeviceSecretHash = ""
+	registration.NotificationChannelRules = cloneNotificationChannelRules(registration.NotificationChannelRules)
 	return registration, nil
 }
 
@@ -76,6 +78,7 @@ func (s *Store) Authenticate(installationID, deviceSecret string) (Registration,
 	}
 	registration.DeviceSecret = ""
 	registration.DeviceSecretHash = ""
+	registration.NotificationChannelRules = cloneNotificationChannelRules(registration.NotificationChannelRules)
 	return registration, nil
 }
 
@@ -123,6 +126,17 @@ func (s *Store) DeleteForAccount(userID string, installationIDs []string) ([]str
 		return nil, err
 	}
 	return removed, nil
+}
+
+func cloneNotificationChannelRules(value map[string][]string) map[string][]string {
+	if len(value) == 0 {
+		return nil
+	}
+	result := make(map[string][]string, len(value))
+	for channelID, rules := range value {
+		result[channelID] = append([]string(nil), rules...)
+	}
+	return result
 }
 
 func registrationSecretMatches(registration Registration, provided string) bool {
