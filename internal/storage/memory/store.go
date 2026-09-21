@@ -51,10 +51,10 @@ func (s *Store) List() []Registration {
 		registration.ModeratorChannelIDs = append([]string(nil), registration.ModeratorChannelIDs...)
 		registration.NotificationRules = append([]string(nil), registration.NotificationRules...)
 		registration.NotificationChannelRules = cloneNotificationChannelRules(registration.NotificationChannelRules)
-	registration.NotificationChannelMutedUntilEpochMillis =
-		cloneNotificationChannelMutedUntilEpochMillis(
-			registration.NotificationChannelMutedUntilEpochMillis,
-		)
+		registration.NotificationChannelMutedUntilEpochMillis =
+			cloneNotificationChannelMutedUntilEpochMillis(
+				registration.NotificationChannelMutedUntilEpochMillis,
+			)
 		registration.HighlightPhrases = append([]string(nil), registration.HighlightPhrases...)
 		registration.SelectedUserLogins = append([]string(nil), registration.SelectedUserLogins...)
 		result = append(result, registration)
