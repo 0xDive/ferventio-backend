@@ -535,7 +535,7 @@ func ruleEnabled(registration Registration, rule string) bool {
 	return len(registration.NotificationRules) == 0 || containsString(registration.NotificationRules, rule)
 }
 
-func ruleEnabledForChannel(registration Registration, rule, channelID string) bool {
+func ruleConfiguredForChannel(registration Registration, rule, channelID string) bool {
 	channelID = strings.TrimSpace(channelID)
 	if channelID != "" && registration.NotificationChannelRules != nil {
 		if rules, ok := registration.NotificationChannelRules[channelID]; ok {
@@ -543,6 +543,16 @@ func ruleEnabledForChannel(registration Registration, rule, channelID string) bo
 		}
 	}
 	return ruleEnabled(registration, rule)
+}
+
+func ruleEnabledForChannel(registration Registration, rule, channelID string) bool {
+	channelID = strings.TrimSpace(channelID)
+	if channelID != "" && registration.NotificationChannelMutedUntilEpochMillis != nil {
+		if mutedUntil := registration.NotificationChannelMutedUntilEpochMillis[channelID]; mutedUntil > time.Now().UTC().UnixMilli() {
+			return false
+		}
+	}
+	return ruleConfiguredForChannel(registration, rule, channelID)
 }
 
 func containsMention(text, login string) bool {

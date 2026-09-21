@@ -161,3 +161,17 @@ func TestNormalizeNotificationChannelRulesKeepsOnlyRegisteredChannels(t *testing
 		t.Fatalf("channel-1 rules = %#v, want %#v", current, want)
 	}
 }
+
+func TestNormalizeNotificationChannelMutesKeepsOnlyRegisteredPositiveValues(t *testing.T) {
+	got := normalizeNotificationChannelMutedUntilEpochMillis(
+		map[string]int64{
+			" channel-1 ": 12345,
+			"channel-2":   0,
+			"other":       99999,
+		},
+		[]string{"channel-1", "channel-2"},
+	)
+	if len(got) != 1 || got["channel-1"] != 12345 {
+		t.Fatalf("mutes = %#v, want channel-1 only", got)
+	}
+}

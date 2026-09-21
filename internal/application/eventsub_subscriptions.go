@@ -144,13 +144,13 @@ func desiredEventSubSubscriptions(cfg Config, registrations []Registration) []ev
 			isBroadcaster := registration.UserID != "" && registration.UserID == broadcasterID
 			// channel.chat.message intentionally stays on the per-user WebSocket transport.
 			// Creating it with an app access token would require bot identity scopes.
-			if registration.UserID != "" && isModerator && ruleEnabledForChannel(registration, "automod_hold", broadcasterID) {
+			if registration.UserID != "" && isModerator && ruleConfiguredForChannel(registration, "automod_hold", broadcasterID) {
 				appendSpec("automod.message.hold", "2", map[string]string{
 					"broadcaster_user_id": broadcasterID,
 					"moderator_user_id":   registration.UserID,
 				})
 			}
-			if registration.UserID != "" && isModerator && ruleEnabledForChannel(registration, "moderation_action", broadcasterID) {
+			if registration.UserID != "" && isModerator && ruleConfiguredForChannel(registration, "moderation_action", broadcasterID) {
 				appendSpec("channel.moderate", "2", map[string]string{
 					"broadcaster_user_id": broadcasterID,
 					"moderator_user_id":   registration.UserID,
@@ -159,23 +159,23 @@ func desiredEventSubSubscriptions(cfg Config, registrations []Registration) []ev
 			if isModerator && anyRuleForChannel(registration, broadcasterID, "ban", "timeout") {
 				appendSpec("channel.ban", "1", map[string]string{"broadcaster_user_id": broadcasterID})
 			}
-			if ruleEnabledForChannel(registration, "stream_online", broadcasterID) {
+			if ruleConfiguredForChannel(registration, "stream_online", broadcasterID) {
 				appendSpec("stream.online", "1", map[string]string{"broadcaster_user_id": broadcasterID})
 			}
 			if anyRuleForChannel(registration, broadcasterID, "title_change", "game_change") {
 				appendSpec("channel.update", "2", map[string]string{"broadcaster_user_id": broadcasterID})
 			}
-			if ruleEnabledForChannel(registration, "raid", broadcasterID) {
+			if ruleConfiguredForChannel(registration, "raid", broadcasterID) {
 				appendSpec("channel.raid", "1", map[string]string{"to_broadcaster_user_id": broadcasterID})
 			}
-			if isBroadcaster && ruleEnabledForChannel(registration, "reward", broadcasterID) {
+			if isBroadcaster && ruleConfiguredForChannel(registration, "reward", broadcasterID) {
 				appendSpec(
 					"channel.channel_points_custom_reward_redemption.add",
 					"1",
 					map[string]string{"broadcaster_user_id": broadcasterID},
 				)
 			}
-			if isBroadcaster && ruleEnabledForChannel(registration, "subscription", broadcasterID) {
+			if isBroadcaster && ruleConfiguredForChannel(registration, "subscription", broadcasterID) {
 				appendSpec("channel.subscribe", "1", map[string]string{"broadcaster_user_id": broadcasterID})
 				appendSpec("channel.subscription.message", "1", map[string]string{"broadcaster_user_id": broadcasterID})
 				appendSpec("channel.subscription.gift", "1", map[string]string{"broadcaster_user_id": broadcasterID})
@@ -204,7 +204,7 @@ func anyRule(registration Registration, rules ...string) bool {
 
 func anyRuleForChannel(registration Registration, channelID string, rules ...string) bool {
 	for _, rule := range rules {
-		if ruleEnabledForChannel(registration, rule, channelID) {
+		if ruleConfiguredForChannel(registration, rule, channelID) {
 			return true
 		}
 	}

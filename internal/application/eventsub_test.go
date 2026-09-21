@@ -179,6 +179,34 @@ func TestNotificationRoutingHonorsPerChannelRules(t *testing.T) {
 	}
 }
 
+func TestNotificationRoutingHonorsTemporaryChannelMute(t *testing.T) {
+	registration := Registration{
+		UserID:            "viewer-1",
+		UserLogin:         "viewer",
+		ChannelIDs:        []string{"channel-1"},
+		NotificationRules: []string{"mention"},
+		NotificationChannelMutedUntilEpochMillis: map[string]int64{
+			"channel-1": time.Now().UTC().Add(time.Hour).UnixMilli(),
+		},
+	}
+	event := map[string]any{
+		"broadcaster_user_id": "channel-1",
+		"chatter_user_id":     "author",
+		"chatter_user_login":  "author",
+		"message_id":          "muted-message",
+		"message":             map[string]any{"text": "hello @viewer"},
+	}
+	if _, ok := eventNotificationForRegistration("muted", "channel.chat.message", event, registration); ok {
+		t.Fatal("temporarily muted channel routed a notification")
+	}
+
+	registration.NotificationChannelMutedUntilEpochMillis["channel-1"] = 1
+	notification, ok := eventNotificationForRegistration("resumed", "channel.chat.message", event, registration)
+	if !ok || notification.Type != "mention" {
+		t.Fatalf("expired mute did not resume delivery: %#v, ok=%v", notification, ok)
+	}
+}
+
 func TestDesiredEventSubSubscriptionsHonorsPerChannelRules(t *testing.T) {
 	cfg := Config{EventSubCallbackURL: "https://example.com/v1/eventsub/webhook", EventSubSecret: "secret-value-1234"}
 	registration := Registration{
@@ -188,6 +216,9 @@ func TestDesiredEventSubSubscriptionsHonorsPerChannelRules(t *testing.T) {
 		NotificationRules:   []string{"automod_hold"},
 		NotificationChannelRules: map[string][]string{
 			"channel-1": {"__disabled__"},
+		},
+		NotificationChannelMutedUntilEpochMillis: map[string]int64{
+			"channel-2": time.Now().UTC().Add(time.Hour).UnixMilli(),
 		},
 	}
 	subscriptions := desiredEventSubSubscriptions(cfg, []Registration{registration})

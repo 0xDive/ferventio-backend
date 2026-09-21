@@ -18,8 +18,9 @@ type Registration struct {
 	UserLogin                string              `json:"userLogin,omitempty"`
 	ChannelIDs               []string            `json:"channelIds,omitempty"`
 	ModeratorChannelIDs      []string            `json:"moderatorChannelIds,omitempty"`
-	NotificationRules        []string            `json:"notificationRules,omitempty"`
-	NotificationChannelRules map[string][]string `json:"notificationChannelRules,omitempty"`
+	NotificationRules                         []string            `json:"notificationRules,omitempty"`
+	NotificationChannelRules                  map[string][]string `json:"notificationChannelRules,omitempty"`
+	NotificationChannelMutedUntilEpochMillis  map[string]int64    `json:"notificationChannelMutedUntilEpochMillis,omitempty"`
 	HighlightPhrases         []string            `json:"highlightPhrases,omitempty"`
 	SelectedUserLogins       []string            `json:"selectedUserLogins,omitempty"`
 	UpdatedAt                time.Time           `json:"updatedAt"`

@@ -32,6 +32,10 @@ func (s *Store) Upsert(registration Registration) error {
 	registration.DeviceSecretHash = hashSecret(providedSecret)
 	registration.DeviceSecret = ""
 	registration.NotificationChannelRules = cloneNotificationChannelRules(registration.NotificationChannelRules)
+	registration.NotificationChannelMutedUntilEpochMillis =
+		cloneNotificationChannelMutedUntilEpochMillis(
+			registration.NotificationChannelMutedUntilEpochMillis,
+		)
 	s.registrations[registration.InstallationID] = registration
 	return s.persistLocked()
 }
@@ -47,6 +51,10 @@ func (s *Store) List() []Registration {
 		registration.ModeratorChannelIDs = append([]string(nil), registration.ModeratorChannelIDs...)
 		registration.NotificationRules = append([]string(nil), registration.NotificationRules...)
 		registration.NotificationChannelRules = cloneNotificationChannelRules(registration.NotificationChannelRules)
+	registration.NotificationChannelMutedUntilEpochMillis =
+		cloneNotificationChannelMutedUntilEpochMillis(
+			registration.NotificationChannelMutedUntilEpochMillis,
+		)
 		registration.HighlightPhrases = append([]string(nil), registration.HighlightPhrases...)
 		registration.SelectedUserLogins = append([]string(nil), registration.SelectedUserLogins...)
 		result = append(result, registration)
@@ -64,6 +72,10 @@ func (s *Store) Get(installationID string) (Registration, error) {
 	registration.DeviceSecret = ""
 	registration.DeviceSecretHash = ""
 	registration.NotificationChannelRules = cloneNotificationChannelRules(registration.NotificationChannelRules)
+	registration.NotificationChannelMutedUntilEpochMillis =
+		cloneNotificationChannelMutedUntilEpochMillis(
+			registration.NotificationChannelMutedUntilEpochMillis,
+		)
 	return registration, nil
 }
 
@@ -80,6 +92,10 @@ func (s *Store) Authenticate(installationID, deviceSecret string) (Registration,
 	registration.DeviceSecret = ""
 	registration.DeviceSecretHash = ""
 	registration.NotificationChannelRules = cloneNotificationChannelRules(registration.NotificationChannelRules)
+	registration.NotificationChannelMutedUntilEpochMillis =
+		cloneNotificationChannelMutedUntilEpochMillis(
+			registration.NotificationChannelMutedUntilEpochMillis,
+		)
 	return registration, nil
 }
 
@@ -127,6 +143,17 @@ func (s *Store) DeleteForAccount(userID string, installationIDs []string) ([]str
 		return nil, err
 	}
 	return removed, nil
+}
+
+func cloneNotificationChannelMutedUntilEpochMillis(value map[string]int64) map[string]int64 {
+	if len(value) == 0 {
+		return nil
+	}
+	result := make(map[string]int64, len(value))
+	for channelID, mutedUntilEpochMillis := range value {
+		result[channelID] = mutedUntilEpochMillis
+	}
+	return result
 }
 
 func cloneNotificationChannelRules(value map[string][]string) map[string][]string {

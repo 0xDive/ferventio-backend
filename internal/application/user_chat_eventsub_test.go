@@ -62,6 +62,9 @@ func TestAssignUserChatChannelsHonorsPerChannelOverrides(t *testing.T) {
 				"channel-1": {"reply"},
 				"channel-2": {"__disabled__"},
 			},
+			NotificationChannelMutedUntilEpochMillis: map[string]int64{
+				"channel-1": 4102444800000,
+			},
 		},
 	}
 

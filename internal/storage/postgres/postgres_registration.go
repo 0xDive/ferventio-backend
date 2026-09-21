@@ -16,7 +16,7 @@ const registrationColumns = `
     installation_id, device_secret_hash, provider, firebase_installation_id,
     apns_device_token, endpoint, p256dh, auth, app_version, platform, user_id, user_login,
     channel_ids, moderator_channel_ids, notification_rules, notification_channel_rules,
-    highlight_phrases, selected_user_logins, updated_at`
+    notification_channel_muted_until_epoch_millis, highlight_phrases, selected_user_logins, updated_at`
 
 func (s *PostgresStorage) Upsert(registration Registration) error {
 	if strings.TrimSpace(registration.InstallationID) == "" || registration.DeviceSecret == "" {
@@ -49,9 +49,10 @@ func (s *PostgresStorage) Upsert(registration Registration) error {
             installation_id, device_secret_hash, provider, firebase_installation_id,
             apns_device_token, endpoint, p256dh, auth, app_version, platform, user_id, user_login,
             channel_ids, moderator_channel_ids, notification_rules, notification_channel_rules,
+            notification_channel_muted_until_epoch_millis,
             highlight_phrases, selected_user_logins, updated_at
         ) VALUES (
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20
         )
         ON CONFLICT (installation_id) DO UPDATE SET
             device_secret_hash = EXCLUDED.device_secret_hash,
@@ -69,6 +70,8 @@ func (s *PostgresStorage) Upsert(registration Registration) error {
             moderator_channel_ids = EXCLUDED.moderator_channel_ids,
             notification_rules = EXCLUDED.notification_rules,
             notification_channel_rules = EXCLUDED.notification_channel_rules,
+            notification_channel_muted_until_epoch_millis =
+                EXCLUDED.notification_channel_muted_until_epoch_millis,
             highlight_phrases = EXCLUDED.highlight_phrases,
             selected_user_logins = EXCLUDED.selected_user_logins,
             updated_at = EXCLUDED.updated_at`,
@@ -88,6 +91,9 @@ func (s *PostgresStorage) Upsert(registration Registration) error {
 		nonNilStrings(registration.ModeratorChannelIDs),
 		nonNilStrings(registration.NotificationRules),
 		notificationChannelRulesJSON(registration.NotificationChannelRules),
+		notificationChannelMutedUntilEpochMillisJSON(
+			registration.NotificationChannelMutedUntilEpochMillis,
+		),
 		nonNilStrings(registration.HighlightPhrases),
 		nonNilStrings(registration.SelectedUserLogins),
 		registration.UpdatedAt,
@@ -227,6 +233,7 @@ type registrationScanner interface {
 func scanRegistration(scanner registrationScanner) (Registration, error) {
 	var registration Registration
 	var notificationChannelRules []byte
+	var notificationChannelMutedUntilEpochMillis []byte
 	err := scanner.Scan(
 		&registration.InstallationID,
 		&registration.DeviceSecretHash,
@@ -244,6 +251,7 @@ func scanRegistration(scanner registrationScanner) (Registration, error) {
 		&registration.ModeratorChannelIDs,
 		&registration.NotificationRules,
 		&notificationChannelRules,
+		&notificationChannelMutedUntilEpochMillis,
 		&registration.HighlightPhrases,
 		&registration.SelectedUserLogins,
 		&registration.UpdatedAt,
@@ -256,6 +264,14 @@ func scanRegistration(scanner registrationScanner) (Registration, error) {
 			return Registration{}, fmt.Errorf("decode notification channel rules: %w", err)
 		}
 	}
+	if len(notificationChannelMutedUntilEpochMillis) > 0 {
+		if err := json.Unmarshal(
+			notificationChannelMutedUntilEpochMillis,
+			&registration.NotificationChannelMutedUntilEpochMillis,
+		); err != nil {
+			return Registration{}, fmt.Errorf("decode notification channel mutes: %w", err)
+		}
+	}
 	return registration, nil
 }
 
@@ -266,9 +282,35 @@ func publicRegistration(registration Registration) Registration {
 	registration.ModeratorChannelIDs = append([]string(nil), registration.ModeratorChannelIDs...)
 	registration.NotificationRules = append([]string(nil), registration.NotificationRules...)
 	registration.NotificationChannelRules = cloneNotificationChannelRules(registration.NotificationChannelRules)
+	registration.NotificationChannelMutedUntilEpochMillis =
+		cloneNotificationChannelMutedUntilEpochMillis(
+			registration.NotificationChannelMutedUntilEpochMillis,
+		)
 	registration.HighlightPhrases = append([]string(nil), registration.HighlightPhrases...)
 	registration.SelectedUserLogins = append([]string(nil), registration.SelectedUserLogins...)
 	return registration
+}
+
+func notificationChannelMutedUntilEpochMillisJSON(value map[string]int64) string {
+	if len(value) == 0 {
+		return "{}"
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return "{}"
+	}
+	return string(encoded)
+}
+
+func cloneNotificationChannelMutedUntilEpochMillis(value map[string]int64) map[string]int64 {
+	if len(value) == 0 {
+		return nil
+	}
+	result := make(map[string]int64, len(value))
+	for channelID, mutedUntilEpochMillis := range value {
+		result[channelID] = mutedUntilEpochMillis
+	}
+	return result
 }
 
 func notificationChannelRulesJSON(value map[string][]string) string {
