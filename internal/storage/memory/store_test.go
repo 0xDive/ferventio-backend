@@ -53,3 +53,42 @@ func TestStoreHashesDeviceSecrets(t *testing.T) {
 		t.Fatalf("wrong secret = %v", err)
 	}
 }
+
+func TestStoreCopiesNotificationChannelRules(t *testing.T) {
+	store, err := OpenStore("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	registration := Registration{
+		InstallationID: "installation-rules",
+		DeviceSecret:   "plain-secret",
+		Provider:       "embedded_socket",
+		AppVersion:     "test",
+		Platform:       "android",
+		NotificationChannelRules: map[string][]string{
+			"channel-1": {"reply"},
+		},
+		NotificationChannelMutedUntilEpochMillis: map[string]int64{
+			"channel-1": 12345,
+		},
+	}
+	if err := store.Upsert(registration); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Authenticate(registration.InstallationID, registration.DeviceSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded.NotificationChannelRules["channel-1"][0] = "mutated"
+	loaded.NotificationChannelMutedUntilEpochMillis["channel-1"] = 99999
+	reloaded, err := store.Get(registration.InstallationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.NotificationChannelRules["channel-1"][0]; got != "reply" {
+		t.Fatalf("stored notification rules were aliased: %q", got)
+	}
+	if got := reloaded.NotificationChannelMutedUntilEpochMillis["channel-1"]; got != 12345 {
+		t.Fatalf("stored notification mute was aliased: %d", got)
+	}
+}

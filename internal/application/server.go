@@ -297,6 +297,15 @@ func (s *Server) upsertRegistration(w http.ResponseWriter, r *http.Request) {
 	registration.ModeratorChannelIDs = normalizeLimitedStrings(registration.ModeratorChannelIDs, 100, 64)
 	registration.ModeratorChannelIDs = intersectStrings(registration.ModeratorChannelIDs, registration.ChannelIDs)
 	registration.NotificationRules = normalizeLimitedStrings(registration.NotificationRules, 32, 64)
+	registration.NotificationChannelRules = normalizeNotificationChannelRules(
+		registration.NotificationChannelRules,
+		registration.ChannelIDs,
+	)
+	registration.NotificationChannelMutedUntilEpochMillis =
+		normalizeNotificationChannelMutedUntilEpochMillis(
+			registration.NotificationChannelMutedUntilEpochMillis,
+			registration.ChannelIDs,
+		)
 	registration.HighlightPhrases = normalizeLimitedStrings(registration.HighlightPhrases, 100, 200)
 	registration.SelectedUserLogins = normalizeLimitedStrings(registration.SelectedUserLogins, 100, 50)
 	if s.authStore != nil && s.oauth != nil {
@@ -360,6 +369,8 @@ func (s *Server) upsertRegistration(w http.ResponseWriter, r *http.Request) {
 		registration.ChannelIDs = nil
 		registration.ModeratorChannelIDs = nil
 		registration.NotificationRules = nil
+		registration.NotificationChannelRules = nil
+		registration.NotificationChannelMutedUntilEpochMillis = nil
 		registration.HighlightPhrases = nil
 		registration.SelectedUserLogins = nil
 	}
@@ -548,6 +559,74 @@ func intersectStrings(values, allowed []string) []string {
 		if _, ok := allowedSet[strings.ToLower(value)]; ok {
 			result = append(result, value)
 		}
+	}
+	return result
+}
+
+func normalizeNotificationChannelRules(
+	value map[string][]string,
+	channelIDs []string,
+) map[string][]string {
+	if len(value) == 0 || len(channelIDs) == 0 {
+		return nil
+	}
+	allowed := make(map[string]string, len(channelIDs))
+	for _, channelID := range channelIDs {
+		channelID = strings.TrimSpace(channelID)
+		if channelID != "" {
+			allowed[strings.ToLower(channelID)] = channelID
+		}
+	}
+	if len(allowed) == 0 {
+		return nil
+	}
+	result := make(map[string][]string, minInt(len(value), 100))
+	for rawChannelID, rawRules := range value {
+		channelID, ok := allowed[strings.ToLower(strings.TrimSpace(rawChannelID))]
+		if !ok {
+			continue
+		}
+		result[channelID] = normalizeLimitedStrings(rawRules, 32, 64)
+		if len(result) >= 100 {
+			break
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func normalizeNotificationChannelMutedUntilEpochMillis(
+	value map[string]int64,
+	channelIDs []string,
+) map[string]int64 {
+	if len(value) == 0 || len(channelIDs) == 0 {
+		return nil
+	}
+	allowed := make(map[string]string, len(channelIDs))
+	for _, channelID := range channelIDs {
+		channelID = strings.TrimSpace(channelID)
+		if channelID != "" {
+			allowed[strings.ToLower(channelID)] = channelID
+		}
+	}
+	if len(allowed) == 0 {
+		return nil
+	}
+	result := make(map[string]int64, minInt(len(value), 100))
+	for rawChannelID, mutedUntilEpochMillis := range value {
+		channelID, ok := allowed[strings.ToLower(strings.TrimSpace(rawChannelID))]
+		if !ok || mutedUntilEpochMillis <= 0 {
+			continue
+		}
+		result[channelID] = mutedUntilEpochMillis
+		if len(result) >= 100 {
+			break
+		}
+	}
+	if len(result) == 0 {
+		return nil
 	}
 	return result
 }

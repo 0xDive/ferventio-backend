@@ -142,6 +142,108 @@ func TestChatNotificationRouting(t *testing.T) {
 	}
 }
 
+func TestNotificationRoutingHonorsPerChannelRules(t *testing.T) {
+	registration := Registration{
+		UserID:            "viewer-1",
+		UserLogin:         "viewer",
+		ChannelIDs:        []string{"channel-1", "channel-2"},
+		NotificationRules: []string{"mention"},
+		NotificationChannelRules: map[string][]string{
+			"channel-1": {"reply"},
+		},
+	}
+	mention := map[string]any{
+		"broadcaster_user_id": "channel-1",
+		"chatter_user_id":     "author",
+		"chatter_user_login":  "author",
+		"message_id":          "m1",
+		"message":             map[string]any{"text": "hello @viewer"},
+	}
+	if _, ok := eventNotificationForRegistration("e1", "channel.chat.message", mention, registration); ok {
+		t.Fatal("channel override leaked global mention rule")
+	}
+
+	reply := cloneEvent(mention)
+	reply["message"] = map[string]any{"text": "reply"}
+	reply["reply"] = map[string]any{"parent_user_id": "viewer-1"}
+	notification, ok := eventNotificationForRegistration("e2", "channel.chat.message", reply, registration)
+	if !ok || notification.Type != "reply" {
+		t.Fatalf("reply notification = %#v, ok=%v", notification, ok)
+	}
+
+	inherited := cloneEvent(mention)
+	inherited["broadcaster_user_id"] = "channel-2"
+	notification, ok = eventNotificationForRegistration("e3", "channel.chat.message", inherited, registration)
+	if !ok || notification.Type != "mention" {
+		t.Fatalf("inherited notification = %#v, ok=%v", notification, ok)
+	}
+}
+
+func TestNotificationRoutingHonorsTemporaryChannelMute(t *testing.T) {
+	registration := Registration{
+		UserID:            "viewer-1",
+		UserLogin:         "viewer",
+		ChannelIDs:        []string{"channel-1"},
+		NotificationRules: []string{"mention"},
+		NotificationChannelMutedUntilEpochMillis: map[string]int64{
+			"channel-1": time.Now().UTC().Add(time.Hour).UnixMilli(),
+		},
+	}
+	event := map[string]any{
+		"broadcaster_user_id": "channel-1",
+		"chatter_user_id":     "author",
+		"chatter_user_login":  "author",
+		"message_id":          "muted-message",
+		"message":             map[string]any{"text": "hello @viewer"},
+	}
+	if _, ok := eventNotificationForRegistration("muted", "channel.chat.message", event, registration); ok {
+		t.Fatal("temporarily muted channel routed a notification")
+	}
+
+	registration.NotificationChannelMutedUntilEpochMillis["channel-1"] = 1
+	notification, ok := eventNotificationForRegistration("resumed", "channel.chat.message", event, registration)
+	if !ok || notification.Type != "mention" {
+		t.Fatalf("expired mute did not resume delivery: %#v, ok=%v", notification, ok)
+	}
+}
+
+func TestDesiredEventSubSubscriptionsHonorsPerChannelRules(t *testing.T) {
+	cfg := Config{EventSubCallbackURL: "https://example.com/v1/eventsub/webhook", EventSubSecret: "secret-value-1234"}
+	registration := Registration{
+		UserID:              "viewer-1",
+		ChannelIDs:          []string{"channel-1", "channel-2"},
+		ModeratorChannelIDs: []string{"channel-1", "channel-2"},
+		NotificationRules:   []string{"automod_hold"},
+		NotificationChannelRules: map[string][]string{
+			"channel-1": {"__disabled__"},
+		},
+		NotificationChannelMutedUntilEpochMillis: map[string]int64{
+			"channel-2": time.Now().UTC().Add(time.Hour).UnixMilli(),
+		},
+	}
+	subscriptions := desiredEventSubSubscriptions(cfg, []Registration{registration})
+	keys := make(map[string]bool, len(subscriptions))
+	for _, subscription := range subscriptions {
+		keys[eventSubSpecKey(subscription.Type, subscription.Version, subscription.Condition)] = true
+	}
+	disabled := eventSubSpecKey(
+		"automod.message.hold",
+		"2",
+		map[string]string{"broadcaster_user_id": "channel-1", "moderator_user_id": "viewer-1"},
+	)
+	enabled := eventSubSpecKey(
+		"automod.message.hold",
+		"2",
+		map[string]string{"broadcaster_user_id": "channel-2", "moderator_user_id": "viewer-1"},
+	)
+	if keys[disabled] {
+		t.Fatalf("disabled channel subscription was created: %s", disabled)
+	}
+	if !keys[enabled] {
+		t.Fatalf("inherited channel subscription missing: %s", enabled)
+	}
+}
+
 func TestDesiredEventSubSubscriptions(t *testing.T) {
 	cfg := Config{EventSubCallbackURL: "https://example.com/v1/eventsub/webhook", EventSubSecret: "secret-value-1234"}
 	registrations := []Registration{
