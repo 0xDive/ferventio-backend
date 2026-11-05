@@ -376,7 +376,7 @@ func eventNotificationForRegistration(
 	case "channel.chat.message":
 		return chatMessageNotification(base, event, registration)
 	case "automod.message.hold":
-		if !ruleEnabled(registration, "automod_hold") {
+		if !ruleEnabledForChannel(registration, "automod_hold", channelID) {
 			return Notification{}, false
 		}
 		base.Type = "automod_hold"
@@ -390,7 +390,7 @@ func eventNotificationForRegistration(
 		if !boolValue(event, "is_permanent") || stringValue(event, "ends_at") != "" {
 			typeName = "timeout"
 		}
-		if !ruleEnabled(registration, typeName) {
+		if !ruleEnabledForChannel(registration, typeName, channelID) {
 			return Notification{}, false
 		}
 		base.Type = typeName
@@ -399,7 +399,7 @@ func eventNotificationForRegistration(
 		base.Destination = "moderation"
 		return base, true
 	case "channel.moderate":
-		if !ruleEnabled(registration, "moderation_action") {
+		if !ruleEnabledForChannel(registration, "moderation_action", channelID) {
 			return Notification{}, false
 		}
 		base.Type = "moderation_action"
@@ -408,7 +408,7 @@ func eventNotificationForRegistration(
 		base.Destination = "moderation"
 		return base, true
 	case "stream.online":
-		if !ruleEnabled(registration, "stream_online") {
+		if !ruleEnabledForChannel(registration, "stream_online", channelID) {
 			return Notification{}, false
 		}
 		base.Type = "stream_online"
@@ -418,8 +418,8 @@ func eventNotificationForRegistration(
 	case "channel.update":
 		titleChanged := boolValue(event, "_ferventio_title_changed")
 		gameChanged := boolValue(event, "_ferventio_game_changed")
-		canTitle := titleChanged && ruleEnabled(registration, "title_change")
-		canGame := gameChanged && ruleEnabled(registration, "game_change")
+		canTitle := titleChanged && ruleEnabledForChannel(registration, "title_change", channelID)
+		canGame := gameChanged && ruleEnabledForChannel(registration, "game_change", channelID)
 		if !canTitle && !canGame {
 			return Notification{}, false
 		}
@@ -441,7 +441,7 @@ func eventNotificationForRegistration(
 		}
 		return base, base.Body != ""
 	case "channel.raid":
-		if !ruleEnabled(registration, "raid") {
+		if !ruleEnabledForChannel(registration, "raid", channelID) {
 			return Notification{}, false
 		}
 		base.Type = "raid"
@@ -453,7 +453,7 @@ func eventNotificationForRegistration(
 		)
 		return base, true
 	case "channel.channel_points_custom_reward_redemption.add":
-		if !ruleEnabled(registration, "reward") {
+		if !ruleEnabledForChannel(registration, "reward", channelID) {
 			return Notification{}, false
 		}
 		base.Type = "reward"
@@ -465,7 +465,7 @@ func eventNotificationForRegistration(
 		)
 		return base, true
 	case "channel.subscribe", "channel.subscription.message", "channel.subscription.gift", "channel.chat.notification":
-		if !ruleEnabled(registration, "subscription") {
+		if !ruleEnabledForChannel(registration, "subscription", channelID) {
 			return Notification{}, false
 		}
 		base.Type = "subscription"
@@ -501,27 +501,27 @@ func chatMessageNotification(base Notification, event map[string]any, registrati
 	parentUserID := nestedString(event, "reply", "parent_user_id")
 	parentUserLogin := nestedString(event, "reply", "parent_user_login")
 	switch {
-	case ruleEnabled(registration, "reply") && registration.UserID != "" && parentUserID == registration.UserID:
+	case ruleEnabledForChannel(registration, "reply", base.ChannelID) && registration.UserID != "" && parentUserID == registration.UserID:
 		base.Type = "reply"
 		base.Title = "Ответ от " + authorName
 		base.Destination = "mentions"
 		return base, true
-	case ruleEnabled(registration, "reply") && registration.UserLogin != "" && strings.EqualFold(parentUserLogin, registration.UserLogin):
+	case ruleEnabledForChannel(registration, "reply", base.ChannelID) && registration.UserLogin != "" && strings.EqualFold(parentUserLogin, registration.UserLogin):
 		base.Type = "reply"
 		base.Title = "Ответ от " + authorName
 		base.Destination = "mentions"
 		return base, true
-	case ruleEnabled(registration, "mention") && containsMention(text, registration.UserLogin):
+	case ruleEnabledForChannel(registration, "mention", base.ChannelID) && containsMention(text, registration.UserLogin):
 		base.Type = "mention"
 		base.Title = "Упоминание от " + authorName
 		base.Destination = "mentions"
 		return base, true
-	case ruleEnabled(registration, "selected_user") && containsFold(registration.SelectedUserLogins, authorLogin):
+	case ruleEnabledForChannel(registration, "selected_user", base.ChannelID) && containsFold(registration.SelectedUserLogins, authorLogin):
 		base.Type = "selected_user"
 		base.Title = "Сообщение от " + authorName
 		base.Destination = "mentions"
 		return base, true
-	case ruleEnabled(registration, "highlight") && containsAnyPhrase(text, registration.HighlightPhrases):
+	case ruleEnabledForChannel(registration, "highlight", base.ChannelID) && containsAnyPhrase(text, registration.HighlightPhrases):
 		base.Type = "highlight"
 		base.Title = "Highlight: " + authorName
 		base.Destination = "mentions"
@@ -533,6 +533,26 @@ func chatMessageNotification(base Notification, event map[string]any, registrati
 
 func ruleEnabled(registration Registration, rule string) bool {
 	return len(registration.NotificationRules) == 0 || containsString(registration.NotificationRules, rule)
+}
+
+func ruleConfiguredForChannel(registration Registration, rule, channelID string) bool {
+	channelID = strings.TrimSpace(channelID)
+	if channelID != "" && registration.NotificationChannelRules != nil {
+		if rules, ok := registration.NotificationChannelRules[channelID]; ok {
+			return containsString(rules, rule)
+		}
+	}
+	return ruleEnabled(registration, rule)
+}
+
+func ruleEnabledForChannel(registration Registration, rule, channelID string) bool {
+	channelID = strings.TrimSpace(channelID)
+	if channelID != "" && registration.NotificationChannelMutedUntilEpochMillis != nil {
+		if mutedUntil := registration.NotificationChannelMutedUntilEpochMillis[channelID]; mutedUntil > time.Now().UTC().UnixMilli() {
+			return false
+		}
+	}
+	return ruleConfiguredForChannel(registration, rule, channelID)
 }
 
 func containsMention(text, login string) bool {

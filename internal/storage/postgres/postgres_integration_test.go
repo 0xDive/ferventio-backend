@@ -42,7 +42,13 @@ func TestPostgresStorageRegistrationRoundTrip(t *testing.T) {
 		AppVersion:     "integration-test",
 		Platform:       "android",
 		ChannelIDs:     []string{"123"},
-		UpdatedAt:      time.Now().UTC(),
+		NotificationChannelRules: map[string][]string{
+			"123": {"reply", "automod_hold"},
+		},
+		NotificationChannelMutedUntilEpochMillis: map[string]int64{
+			"123": 12345,
+		},
+		UpdatedAt: time.Now().UTC(),
 	}
 	if err := storage.Upsert(registration); err != nil {
 		t.Fatalf("upsert registration: %v", err)
@@ -62,6 +68,13 @@ func TestPostgresStorageRegistrationRoundTrip(t *testing.T) {
 	}
 	if len(loaded.ChannelIDs) != 1 || loaded.ChannelIDs[0] != "123" {
 		t.Fatalf("unexpected channels: %#v", loaded.ChannelIDs)
+	}
+	if got := loaded.NotificationChannelRules["123"]; len(got) != 2 ||
+		got[0] != "reply" || got[1] != "automod_hold" {
+		t.Fatalf("unexpected notification channel rules: %#v", loaded.NotificationChannelRules)
+	}
+	if got := loaded.NotificationChannelMutedUntilEpochMillis["123"]; got != 12345 {
+		t.Fatalf("unexpected notification channel mute: %#v", loaded.NotificationChannelMutedUntilEpochMillis)
 	}
 	if _, err := storage.Authenticate(installationID, "wrong-secret"); !errors.Is(err, ErrSecretMismatch) {
 		t.Fatalf("wrong secret error = %v, want ErrSecretMismatch", err)

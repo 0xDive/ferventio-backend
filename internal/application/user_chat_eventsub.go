@@ -187,12 +187,13 @@ func assignUserChatChannels(registrations []Registration, _ bool) map[string][]s
 
 	for _, registration := range registrations {
 		userID := strings.TrimSpace(registration.UserID)
-		if userID == "" || !anyRule(registration, "mention", "reply", "highlight", "selected_user") {
+		if userID == "" {
 			continue
 		}
 		for _, rawChannelID := range registration.ChannelIDs {
 			channelID := strings.TrimSpace(rawChannelID)
-			if channelID == "" {
+			if channelID == "" ||
+				!anyRuleForChannel(registration, channelID, "mention", "reply", "highlight", "selected_user") {
 				continue
 			}
 			if watchers[channelID] == nil {

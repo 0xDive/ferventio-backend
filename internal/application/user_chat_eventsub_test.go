@@ -52,6 +52,29 @@ func TestAssignUserChatChannelsKeepsViewerChannelsWithoutWebhook(t *testing.T) {
 	}
 }
 
+func TestAssignUserChatChannelsHonorsPerChannelOverrides(t *testing.T) {
+	registrations := []Registration{
+		{
+			UserID:            "viewer",
+			ChannelIDs:        []string{"channel-1", "channel-2"},
+			NotificationRules: []string{"__disabled__"},
+			NotificationChannelRules: map[string][]string{
+				"channel-1": {"reply"},
+				"channel-2": {"__disabled__"},
+			},
+			NotificationChannelMutedUntilEpochMillis: map[string]int64{
+				"channel-1": 4102444800000,
+			},
+		},
+	}
+
+	assigned := assignUserChatChannels(registrations, true)
+	want := map[string][]string{"viewer": {"channel-1"}}
+	if !reflect.DeepEqual(assigned, want) {
+		t.Fatalf("assigned = %#v, want %#v", assigned, want)
+	}
+}
+
 func TestEnqueueUserChatEventDeduplicatesAcrossUserSessions(t *testing.T) {
 	deliveries := newMemoryDeliveryStore()
 	server := &Server{
